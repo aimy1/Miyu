@@ -418,10 +418,10 @@ impl ProviderConfig {
             append_resolved_api_keys(&mut keys, api_key)?;
         }
 
-        if keys.is_empty() && self.is_opencode_zen() {
+        if keys.is_empty() && (self.is_opencode_zen() || self.is_local_endpoint()) {
             keys.push(ResolvedProviderKey {
                 index: 0,
-                value: "public".to_string(),
+                value: "not-needed".to_string(),
             });
         }
 
@@ -432,6 +432,21 @@ impl ProviderConfig {
             key.index = index;
         }
         Ok(keys)
+    }
+
+    pub fn is_local_endpoint(&self) -> bool {
+        let base = self.base_url.trim().to_lowercase();
+        base.contains("localhost")
+            || base.contains("127.0.0.1")
+            || base.contains("0.0.0.0")
+            || base.starts_with("http://192.168.")
+            || base.starts_with("http://10.")
+            || self.id == "ollama"
+            || self.id == "lmstudio"
+            || self.id == "local-llama"
+            || self.id == "llamacpp"
+            || self.id == "vllm"
+            || self.id == "local"
     }
 
     pub fn is_opencode_zen(&self) -> bool {

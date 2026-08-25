@@ -738,13 +738,20 @@ pub(crate) fn spawn_hangup_watchdog() {
 }
 
 fn terminal_hangup() -> bool {
-    let mut pollfd = libc::pollfd {
-        fd: libc::STDIN_FILENO,
-        events: 0,
-        revents: 0,
-    };
-    let ready = unsafe { libc::poll(&mut pollfd, 1, 0) };
-    ready == 1 && (pollfd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL)) != 0
+    #[cfg(unix)]
+    {
+        let mut pollfd = libc::pollfd {
+            fd: libc::STDIN_FILENO,
+            events: 0,
+            revents: 0,
+        };
+        let ready = unsafe { libc::poll(&mut pollfd, 1, 0) };
+        ready == 1 && (pollfd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL)) != 0
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
 }
 
 enum LiveReplOutcome {

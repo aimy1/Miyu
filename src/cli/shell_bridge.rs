@@ -49,7 +49,10 @@ pub(in crate::cli) fn run_clipboard_paste(paths: &MiyuPaths) -> Result<()> {
                 if link_path.exists() || link_path.is_symlink() {
                     std::fs::remove_file(&link_path)?;
                 }
+                #[cfg(unix)]
                 std::os::unix::fs::symlink(&path, &link_path)?;
+                #[cfg(windows)]
+                std::os::windows::fs::symlink_file(&path, &link_path).or_else(|_| std::fs::copy(&path, &link_path).map(|_| ()))?;
             }
             print!("[Image 1: {}]", filename);
             io::stdout().flush()?;

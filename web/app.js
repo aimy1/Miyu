@@ -118,6 +118,8 @@
     wrench: [["path", { d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z" }]],
     "zoom-in": [["circle", { cx: "11", cy: "11", r: "8" }], ["path", { d: "m21 21-4.3-4.3" }], ["path", { d: "M11 8v6" }], ["path", { d: "M8 11h6" }]],
     "zoom-out": [["circle", { cx: "11", cy: "11", r: "8" }], ["path", { d: "m21 21-4.3-4.3" }], ["path", { d: "M8 11h6" }]],
+    "volume-2": [["polygon", { points: "11 5 6 9 2 9 2 15 6 15 11 19 11 5" }], ["path", { d: "M15.54 8.46a5 5 0 0 1 0 7.07" }], ["path", { d: "M19.07 4.93a10 10 0 0 1 0 14.14" }]],
+    "volume-x": [["polygon", { points: "11 5 6 9 2 9 2 15 6 15 11 19 11 5" }], ["line", { x1: "22", x2: "16", y1: "9", y2: "15" }], ["line", { x1: "16", x2: "22", y1: "9", y2: "15" }]],
     x: [["path", { d: "M18 6 6 18" }], ["path", { d: "m6 6 12 12" }]]
   };
 
@@ -306,10 +308,31 @@
     popDialogAll: document.getElementById("popDialogAll"),
     popConfirmButton: document.getElementById("popConfirmButton"),
     resetCancelButton: document.getElementById("resetCancelButton"),
-    resetConfirmButton: document.getElementById("resetConfirmButton")
+    resetConfirmButton: document.getElementById("resetConfirmButton"),
+    voiceToggleButton: document.getElementById("voiceToggleButton"),
+    voiceEnabledToggle: document.getElementById("voiceEnabledToggle"),
+    voiceSelect: document.getElementById("voiceSelect"),
+    voiceRateSlider: document.getElementById("voiceRateSlider"),
+    voicePitchSlider: document.getElementById("voicePitchSlider"),
+    voiceRateLabel: document.getElementById("voiceRateLabel"),
+    voicePitchLabel: document.getElementById("voicePitchLabel"),
+    voiceTestButton: document.getElementById("voiceTestButton"),
+    customVoiceNameInput: document.getElementById("customVoiceNameInput"),
+    customVoiceIdInput: document.getElementById("customVoiceIdInput"),
+    addCustomVoiceButton: document.getElementById("addCustomVoiceButton"),
+    customVoiceList: document.getElementById("customVoiceList")
   };
 
   const state = {
+    voiceEnabled: localStorage.getItem("miyu.voice.enabled") === "1",
+    customVoices: [],
+    voiceConfig: {
+      voice: "zh-CN-XiaoxiaoNeural",
+      pitch: "+0Hz",
+      rate: "+0%",
+      volume: "+0%"
+    },
+    currentAudio: null,
     backgroundJobs: new Map(),
     jobsStripOpen: localStorage.getItem("miyu.web.jobsStripOpen") === "1",
     bootId: null,
@@ -6129,6 +6152,13 @@
         redo.className = "redo-action";
         meta.appendChild(redo);
       }
+      if (String(content || "").trim()) {
+        const voiceBtn = makeMessageAction("volume-2", "朗读此回复", () => {
+          togglePlayMessageVoice(voiceBtn, content);
+        });
+        voiceBtn.className = "message-voice-button";
+        meta.appendChild(voiceBtn);
+      }
       if (copyValue) meta.appendChild(makeCopyButton(copyValue, "复制回复"));
     }
     if (meta.childNodes.length) article.appendChild(meta);
@@ -6785,7 +6815,12 @@
     spacer.className = "meta-spacer";
     const copy = makeCopyButton(() => live.assistantText, "复制回复");
     copy.hidden = true;
-    meta.append(endpoint, metaText, spacer, copy);
+    const voiceBtn = makeMessageAction("volume-2", "朗读此回复", () => {
+      togglePlayMessageVoice(voiceBtn, live.assistantText);
+    });
+    voiceBtn.className = "message-voice-button";
+    voiceBtn.hidden = true;
+    meta.append(endpoint, metaText, spacer, voiceBtn, copy);
     const streamRail = document.createElement("div");
     streamRail.className = "assistant-stream-rail";
     streamRail.hidden = true;
@@ -6798,6 +6833,7 @@
     live.meta = metaText;
     live.endpoint = endpoint;
     live.copyButton = copy;
+    live.voiceButton = voiceBtn;
     live.streamRail = streamRail;
     updateLiveStopButton(live);
     contentAdded(live);
@@ -8516,6 +8552,8 @@
         });
         live.meta.textContent = usage || "已完成";
       }
+      if (live.voiceButton && live.assistantText.trim()) live.voiceButton.hidden = false;
+      if (live.copyButton) live.copyButton.hidden = false;
     } else if (kind === "cancelled") {
       markUnfinishedTools(live);
       endPendingQuestions(live, "本轮已停止，无法再提交回答");
@@ -8550,6 +8588,9 @@
       loadSessionView(state.viewSessionId, { quiet: true });
     }
     if (kind === "completed" || kind === "cancelled") {
+      if (kind === "completed" && liveViewed(live) && state.voiceEnabled && live.assistantText) {
+        playVoiceText(live.assistantText);
+      }
       // 上下文条跟着正在看的会话走（没有视图时退回终端车道）。
       // cancelled 也要刷新：被中断的轮次已经持久化进上下文。
       const updatesGlobalContext = !data?.session_id
@@ -8977,6 +9018,16 @@
     state.models = Array.isArray(snapshot?.models) ? snapshot.models : [];
     applyPersona(snapshot?.persona);
     state.display = snapshot?.display && typeof snapshot.display === "object" ? snapshot.display : state.display;
+    if (snapshot?.display?.voice && typeof snapshot.display.voice === "object") {
+      if (snapshot.display.voice.voice) state.voiceConfig.voice = snapshot.display.voice.voice;
+      if (snapshot.display.voice.pitch) state.voiceConfig.pitch = snapshot.display.voice.pitch;
+      if (snapshot.display.voice.rate) state.voiceConfig.rate = snapshot.display.voice.rate;
+      if (snapshot.display.voice.volume) state.voiceConfig.volume = snapshot.display.voice.volume;
+      if (localStorage.getItem("miyu.voice.enabled") === null) {
+        state.voiceEnabled = Boolean(snapshot.display.voice.enabled);
+      }
+      updateVoiceControls();
+    }
     state.context = snapshot?.context && typeof snapshot.context === "object" ? snapshot.context : { tokens: 0, window: null };
     state.usage = snapshot?.usage && typeof snapshot.usage === "object" ? snapshot.usage : {};
       state.capabilities = snapshot?.capabilities && typeof snapshot.capabilities === "object" ? snapshot.capabilities : {};
@@ -10509,6 +10560,448 @@
     document.addEventListener("keydown", handleGlobalKeydown);
   }
 
+  /* ── 语音系统 (Edge-TTS) 与前端音频控制器 ── */
+  function cleanTextForVoice(raw) {
+    if (!raw) return "";
+    let text = String(raw);
+    text = text.replace(/```[\s\S]*?```/g, "");
+    text = text.replace(/`([^`]+)`/g, "$1");
+    text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+    text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
+    text = text.replace(/<[^>]+>/g, "");
+    text = text.replace(/^#+\s+/gm, "");
+    text = text.replace(/^>\s+/gm, "");
+    text = text.replace(/^---+$/gm, "");
+    text = text.replace(/\n\s*\n/g, "，").replace(/\n/g, "，");
+    return text.trim();
+  }
+
+  let webAudioCtx = null;
+  let activeAudioSource = null;
+
+  function getAudioContext() {
+    if (!webAudioCtx) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) {
+        webAudioCtx = new AudioContextClass();
+      }
+    }
+    if (webAudioCtx && webAudioCtx.state === "suspended") {
+      webAudioCtx.resume().catch(() => {});
+    }
+    return webAudioCtx;
+  }
+
+  function stopVoice() {
+    if (activeAudioSource) {
+      try { activeAudioSource.stop(); } catch (_) {}
+      activeAudioSource = null;
+    }
+    if (state.currentAudio) {
+      try {
+        state.currentAudio.pause();
+        state.currentAudio.currentTime = 0;
+        state.currentAudio.src = "";
+      } catch (_) {}
+      state.currentAudio = null;
+    }
+    document.querySelectorAll(".message-voice-button.is-playing").forEach((btn) => {
+      btn.classList.remove("is-playing");
+      btn.replaceChildren(makeIconSlot("volume-2"));
+    });
+    elements.voiceToggleButton?.classList.remove("is-speaking");
+  }
+
+  async function playVoiceText(text, customOptions = {}, onStart = null, onEnd = null) {
+    stopVoice();
+    const clean = cleanTextForVoice(text);
+    if (!clean) return;
+
+    const payload = {
+      text: clean,
+      voice: customOptions.voice || state.voiceConfig.voice || "zh-CN-XiaoxiaoNeural",
+      pitch: customOptions.pitch || state.voiceConfig.pitch || "+0Hz",
+      rate: customOptions.rate || state.voiceConfig.rate || "+0%",
+      volume: customOptions.volume || state.voiceConfig.volume || "+0%"
+    };
+
+    try {
+      if (elements.voiceToggleButton) {
+        elements.voiceToggleButton.classList.add("is-speaking");
+      }
+      if (typeof onStart === "function") onStart();
+
+      const response = await fetch("/api/voice/synthesize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "audio/mpeg"
+        },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) {
+        let errDesc = `HTTP ${response.status}`;
+        try {
+          const errJson = await response.json();
+          if (errJson?.error?.message) errDesc = errJson.error.message;
+        } catch (_) {}
+        throw new Error(errDesc);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+        throw new Error("音频数据为空");
+      }
+
+      const cleanup = () => {
+        activeAudioSource = null;
+        if (state.currentAudio) state.currentAudio = null;
+        elements.voiceToggleButton?.classList.remove("is-speaking");
+        document.querySelectorAll(".message-voice-button.is-playing").forEach((btn) => {
+          btn.classList.remove("is-playing");
+          btn.replaceChildren(makeIconSlot("volume-2"));
+        });
+        if (typeof onEnd === "function") onEnd();
+      };
+
+      const ctx = getAudioContext();
+      if (ctx) {
+        // Use Web Audio API for robust, zero-latency PCM playback
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+        const sourceNode = ctx.createBufferSource();
+        sourceNode.buffer = audioBuffer;
+        sourceNode.connect(ctx.destination);
+        activeAudioSource = sourceNode;
+        sourceNode.onended = () => {
+          if (activeAudioSource === sourceNode) cleanup();
+        };
+        sourceNode.start(0);
+      } else {
+        const blob = new Blob([arrayBuffer], { type: "audio/mpeg" });
+        const audioUrl = URL.createObjectURL(blob);
+        const audio = new Audio(audioUrl);
+        state.currentAudio = audio;
+        audio.onended = () => {
+          cleanup();
+          setTimeout(() => URL.revokeObjectURL(audioUrl), 5000);
+        };
+        audio.onerror = () => {
+          cleanup();
+          setTimeout(() => URL.revokeObjectURL(audioUrl), 5000);
+        };
+        await audio.play();
+      }
+    } catch (err) {
+      console.warn("语音播放失败:", err);
+      if (err.name === "NotAllowedError") {
+        showToast("点击消息旁的喇叭即可播放语音", "warning");
+      } else {
+        showToast("语音播放失败: " + (err.message || "网络异常"), "error");
+      }
+      stopVoice();
+      if (typeof onEnd === "function") onEnd();
+    }
+  }
+
+  function togglePlayMessageVoice(button, text) {
+    if (button.classList.contains("is-playing")) {
+      stopVoice();
+      return;
+    }
+    playVoiceText(
+      text,
+      {},
+      () => {
+        button.classList.add("is-playing");
+        button.replaceChildren(makeIconSlot("volume-x"));
+      },
+      () => {
+        button.classList.remove("is-playing");
+        button.replaceChildren(makeIconSlot("volume-2"));
+      }
+    );
+  }
+
+  const PRESET_VOICES = [
+    { id: "zh-CN-XiaoxiaoNeural", name: "晓晓 (zh-CN, 温柔女声)" },
+    { id: "zh-CN-YunxiNeural", name: "云希 (zh-CN, 活泼男声)" },
+    { id: "zh-CN-YunjianNeural", name: "云健 (zh-CN, 沉稳男声)" },
+    { id: "zh-CN-XiaoyiNeural", name: "晓伊 (zh-CN, 亲切女声)" },
+    { id: "zh-CN-YunyangNeural", name: "云扬 (zh-CN, 专业新闻主播)" },
+    { id: "zh-CN-XiaomengNeural", name: "晓梦 (zh-CN, 甜美女声)" },
+    { id: "zh-CN-liaoning-XiaobeiNeural", name: "东北晓北 (zh-CN-liaoning, 东北话)" },
+    { id: "zh-CN-shaanxi-XiaoniNeural", name: "陕西晓妮 (zh-CN-shaanxi, 陕西方言)" },
+    { id: "zh-TW-HsiaoChenNeural", name: "晓臻 (zh-TW, 台湾女声)" },
+    { id: "zh-TW-YunJheNeural", name: "云哲 (zh-TW, 台湾男声)" },
+    { id: "zh-HK-HiuMaanNeural", name: "晓曼 (zh-HK, 粤语女声)" },
+    { id: "zh-HK-WanLungNeural", name: "云龙 (zh-HK, 粤语男声)" },
+    { id: "ja-JP-NanamiNeural", name: "七海 Nanami (ja-JP, 日语甜美女声)" },
+    { id: "ja-JP-KeitaNeural", name: "圭太 Keita (ja-JP, 日语男声)" },
+    { id: "ja-JP-AoiNeural", name: "葵 Aoi (ja-JP, 日语自然女声)" },
+    { id: "en-US-JennyNeural", name: "Jenny (en-US, 美语自然女声)" },
+    { id: "en-US-GuyNeural", name: "Guy (en-US, 美语男声)" },
+    { id: "en-US-AriaNeural", name: "Aria (en-US, 美语新闻女主播)" }
+  ];
+
+  function loadCustomVoices() {
+    try {
+      const raw = safeStorageGet("miyu.voice.custom_voices");
+      state.customVoices = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(state.customVoices)) state.customVoices = [];
+    } catch (_) {
+      state.customVoices = [];
+    }
+  }
+
+  function saveCustomVoices() {
+    safeStorageSet("miyu.voice.custom_voices", JSON.stringify(state.customVoices));
+  }
+
+  function renderVoiceSelect() {
+    if (!elements.voiceSelect) return;
+    elements.voiceSelect.replaceChildren();
+
+    if (state.customVoices.length > 0) {
+      const customGroup = document.createElement("optgroup");
+      customGroup.label = "自定义声音";
+      for (const voice of state.customVoices) {
+        const opt = document.createElement("option");
+        opt.value = voice.id;
+        opt.textContent = `${voice.name} (${voice.id})`;
+        customGroup.appendChild(opt);
+      }
+      elements.voiceSelect.appendChild(customGroup);
+    }
+
+    const presetGroup = document.createElement("optgroup");
+    presetGroup.label = "内置预置声音";
+    for (const voice of PRESET_VOICES) {
+      const opt = document.createElement("option");
+      opt.value = voice.id;
+      opt.textContent = voice.name;
+      presetGroup.appendChild(opt);
+    }
+    elements.voiceSelect.appendChild(presetGroup);
+
+    const allIds = new Set([...state.customVoices.map((v) => v.id), ...PRESET_VOICES.map((v) => v.id)]);
+    if (state.voiceConfig.voice && !allIds.has(state.voiceConfig.voice)) {
+      const opt = document.createElement("option");
+      opt.value = state.voiceConfig.voice;
+      opt.textContent = `当前声音: ${state.voiceConfig.voice}`;
+      elements.voiceSelect.appendChild(opt);
+    }
+
+    elements.voiceSelect.value = state.voiceConfig.voice;
+  }
+
+  function renderCustomVoiceList() {
+    if (!elements.customVoiceList) return;
+    elements.customVoiceList.replaceChildren();
+
+    if (!state.customVoices.length) {
+      const empty = document.createElement("div");
+      empty.style.cssText = "color: var(--text-faint); font-size: var(--fs-meta); font-style: italic; padding: 6px 0;";
+      empty.textContent = "暂无自定义声音，可在上方输入并添加";
+      elements.customVoiceList.appendChild(empty);
+      return;
+    }
+
+    for (const voice of state.customVoices) {
+      const row = document.createElement("div");
+      row.className = "custom-voice-item";
+
+      const info = document.createElement("div");
+      info.className = "custom-voice-info";
+      const name = document.createElement("strong");
+      name.className = "custom-voice-name";
+      name.textContent = voice.name;
+      const id = document.createElement("small");
+      id.className = "custom-voice-id";
+      id.textContent = voice.id;
+      info.append(name, id);
+
+      const actions = document.createElement("div");
+      actions.className = "custom-voice-actions";
+
+      const testBtn = document.createElement("button");
+      testBtn.type = "button";
+      testBtn.className = "voice-btn voice-btn-secondary";
+      testBtn.style.cssText = "min-height: 28px; padding: 0 10px; font-size: 12px;";
+      testBtn.textContent = "试听";
+      testBtn.addEventListener("click", () => {
+        playVoiceText(`你好，这是自定义声音 ${voice.name} 的试听效果！`, {
+          voice: voice.id,
+          rate: state.voiceConfig.rate,
+          pitch: state.voiceConfig.pitch
+        });
+      });
+
+      const useBtn = document.createElement("button");
+      useBtn.type = "button";
+      useBtn.className = "voice-btn voice-btn-secondary";
+      useBtn.style.cssText = "min-height: 28px; padding: 0 10px; font-size: 12px;";
+      useBtn.textContent = state.voiceConfig.voice === voice.id ? "已选用" : "设为当前";
+      if (state.voiceConfig.voice === voice.id) useBtn.disabled = true;
+      useBtn.addEventListener("click", () => {
+        state.voiceConfig.voice = voice.id;
+        safeStorageSet("miyu.voice.voice", voice.id);
+        renderVoiceSelect();
+        renderCustomVoiceList();
+        showToast(`已切换当前音色为：${voice.name}`);
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "voice-btn voice-btn-danger";
+      delBtn.style.cssText = "min-height: 28px; padding: 0 10px; font-size: 12px;";
+      delBtn.textContent = "删除";
+      delBtn.addEventListener("click", () => {
+        state.customVoices = state.customVoices.filter((v) => v.id !== voice.id);
+        saveCustomVoices();
+        if (state.voiceConfig.voice === voice.id) {
+          state.voiceConfig.voice = PRESET_VOICES[0].id;
+          safeStorageSet("miyu.voice.voice", state.voiceConfig.voice);
+        }
+        renderVoiceSelect();
+        renderCustomVoiceList();
+        showToast(`已删除自定义声音：${voice.name}`);
+      });
+
+      actions.append(testBtn, useBtn, delBtn);
+      row.append(info, actions);
+      elements.customVoiceList.appendChild(row);
+    }
+  }
+
+  function addCustomVoice() {
+    const name = elements.customVoiceNameInput?.value?.trim() || "";
+    const voiceId = elements.customVoiceIdInput?.value?.trim() || "";
+
+    if (!name) {
+      showToast("请输入声音显示别名", "error");
+      elements.customVoiceNameInput?.focus();
+      return;
+    }
+    if (!voiceId) {
+      showToast("请输入声音标识符 (Voice ID)", "error");
+      elements.customVoiceIdInput?.focus();
+      return;
+    }
+
+    if (state.customVoices.some((v) => v.id === voiceId)) {
+      showToast("该声音标识已存在于自定义列表中", "error");
+      return;
+    }
+
+    state.customVoices.push({ id: voiceId, name });
+    saveCustomVoices();
+    state.voiceConfig.voice = voiceId;
+    safeStorageSet("miyu.voice.voice", voiceId);
+
+    if (elements.customVoiceNameInput) elements.customVoiceNameInput.value = "";
+    if (elements.customVoiceIdInput) elements.customVoiceIdInput.value = "";
+
+    renderVoiceSelect();
+    renderCustomVoiceList();
+    showToast(`已成功添加并选用声音：${name}`);
+  }
+
+  function updateVoiceControls() {
+    if (elements.voiceToggleButton) {
+      elements.voiceToggleButton.classList.toggle("is-active", state.voiceEnabled);
+      elements.voiceToggleButton.title = state.voiceEnabled ? "语音播报：已开启 (点击关闭)" : "语音播报：已关闭 (点击开启)";
+      elements.voiceToggleButton.replaceChildren(makeIconSlot(state.voiceEnabled ? "volume-2" : "volume-x"));
+    }
+    if (elements.voiceEnabledToggle) {
+      elements.voiceEnabledToggle.classList.toggle("on", state.voiceEnabled);
+      elements.voiceEnabledToggle.setAttribute("aria-checked", String(state.voiceEnabled));
+    }
+    if (elements.voiceSelect && state.voiceConfig.voice) {
+      elements.voiceSelect.value = state.voiceConfig.voice;
+    }
+    if (elements.voiceRateSlider && elements.voiceRateLabel) {
+      const rateVal = parseInt(state.voiceConfig.rate) || 0;
+      elements.voiceRateSlider.value = String(rateVal);
+      elements.voiceRateLabel.textContent = `${rateVal >= 0 ? "+" : ""}${rateVal}%`;
+    }
+    if (elements.voicePitchSlider && elements.voicePitchLabel) {
+      const pitchVal = parseInt(state.voiceConfig.pitch) || 0;
+      elements.voicePitchSlider.value = String(pitchVal);
+      elements.voicePitchLabel.textContent = `${pitchVal >= 0 ? "+" : ""}${pitchVal}Hz`;
+    }
+  }
+
+  function initVoiceUI() {
+    loadCustomVoices();
+    const savedVoice = safeStorageGet("miyu.voice.voice");
+    if (savedVoice) state.voiceConfig.voice = savedVoice;
+    const savedRate = safeStorageGet("miyu.voice.rate");
+    if (savedRate) state.voiceConfig.rate = savedRate;
+    const savedPitch = safeStorageGet("miyu.voice.pitch");
+    if (savedPitch) state.voiceConfig.pitch = savedPitch;
+
+    renderVoiceSelect();
+    renderCustomVoiceList();
+
+    elements.voiceToggleButton?.addEventListener("click", () => {
+      state.voiceEnabled = !state.voiceEnabled;
+      safeStorageSet("miyu.voice.enabled", state.voiceEnabled ? "1" : "0");
+      updateVoiceControls();
+      showToast(state.voiceEnabled ? "已开启语音播报" : "已关闭语音播报");
+      if (!state.voiceEnabled) stopVoice();
+    });
+
+    elements.voiceEnabledToggle?.addEventListener("click", () => {
+      state.voiceEnabled = !state.voiceEnabled;
+      safeStorageSet("miyu.voice.enabled", state.voiceEnabled ? "1" : "0");
+      updateVoiceControls();
+      if (!state.voiceEnabled) stopVoice();
+    });
+
+    elements.voiceSelect?.addEventListener("change", (e) => {
+      state.voiceConfig.voice = e.target.value;
+      safeStorageSet("miyu.voice.voice", state.voiceConfig.voice);
+      renderCustomVoiceList();
+    });
+
+    elements.voiceRateSlider?.addEventListener("input", (e) => {
+      const val = parseInt(e.target.value) || 0;
+      state.voiceConfig.rate = `${val >= 0 ? "+" : ""}${val}%`;
+      if (elements.voiceRateLabel) elements.voiceRateLabel.textContent = state.voiceConfig.rate;
+      safeStorageSet("miyu.voice.rate", state.voiceConfig.rate);
+    });
+
+    elements.voicePitchSlider?.addEventListener("input", (e) => {
+      const val = parseInt(e.target.value) || 0;
+      state.voiceConfig.pitch = `${val >= 0 ? "+" : ""}${val}Hz`;
+      if (elements.voicePitchLabel) elements.voicePitchLabel.textContent = state.voiceConfig.pitch;
+      safeStorageSet("miyu.voice.pitch", state.voiceConfig.pitch);
+    });
+
+    elements.voiceTestButton?.addEventListener("click", () => {
+      playVoiceText("你好，我是 Miyu，语音系统已成功连接！", {
+        voice: state.voiceConfig.voice,
+        rate: state.voiceConfig.rate,
+        pitch: state.voiceConfig.pitch
+      });
+    });
+
+    elements.addCustomVoiceButton?.addEventListener("click", addCustomVoice);
+    elements.customVoiceNameInput?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addCustomVoice();
+      }
+    });
+    elements.customVoiceIdInput?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addCustomVoice();
+      }
+    });
+
+    updateVoiceControls();
+  }
+
   function syncAppHeight() {
     const viewport = window.visualViewport;
     if (!viewport) return;
@@ -10533,6 +11026,7 @@
     syncArtifactLayout();
     setSettingsView("interface");
     bindEvents();
+    initVoiceUI();
     resizeComposer();
     updateSettingsControls();
     // 命令目录从服务端拉，前端不维护第二份清单。拉失败就当没有命令，

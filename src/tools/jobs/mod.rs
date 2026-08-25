@@ -280,7 +280,10 @@ pub fn shutdown_all() {
     for kind in &running {
         match kind {
             JobKind::Command { pid } => {
+                #[cfg(unix)]
                 signal_process_group(*pid, libc::SIGTERM);
+                #[cfg(not(unix))]
+                signal_process_group(*pid, 15);
                 pids.push(*pid);
             }
             JobKind::Subagent { abort } => abort.abort(),
@@ -290,7 +293,10 @@ pub fn shutdown_all() {
         std::thread::sleep(Duration::from_millis(300));
         for pid in pids {
             if process_alive(pid) {
+                #[cfg(unix)]
                 signal_process_group(pid, libc::SIGKILL);
+                #[cfg(not(unix))]
+                signal_process_group(pid, 9);
             }
         }
     }
@@ -339,6 +345,7 @@ pub async fn spawn_background(
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(log.try_clone()?))
         .stderr(std::process::Stdio::from(log));
+    #[cfg(unix)]
     process.process_group(0);
     let mut child = process.spawn().context("failed to spawn the background job")?;
     let pid = child.id().context("background job has no pid")?;
@@ -696,14 +703,20 @@ async fn stop_one(job_id: &str) -> Result<String> {
             // SIGKILL escalation are detached — waiting them out inline is
             // what made Ctrl+C feel frozen, and it bought nothing: the job was
             // marked terminal above and has already left `overview()`.
+            #[cfg(unix)]
             signal_process_group(pid, libc::SIGTERM);
+            #[cfg(not(unix))]
+            signal_process_group(pid, 15);
             tokio::spawn(async move {
                 let deadline = Instant::now() + STOP_GRACE;
                 while process_alive(pid) && Instant::now() < deadline {
                     tokio::time::sleep(STATUS_POLL).await;
                 }
                 if process_alive(pid) {
+                    #[cfg(unix)]
                     signal_process_group(pid, libc::SIGKILL);
+                    #[cfg(not(unix))]
+                    signal_process_group(pid, 9);
                 }
             });
         }

@@ -8,7 +8,9 @@
 //! 不能因此取消）、可能重连接上已经在跑的回合、也可能只是来问一句状态。
 
 use crate::web::*;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[cfg(unix)]
 pub(in crate::web) fn start_ipc_server(
     state: &DaemonState,
 ) -> Result<(crate::ipc::WebCoreLease, TokioJoinHandle<()>)> {
@@ -17,7 +19,7 @@ pub(in crate::web) fn start_ipc_server(
     let socket_path = state.paths.ipc_socket();
     let listener = tokio::net::UnixListener::bind(&socket_path)
         .with_context(|| format!("binding Miyu IPC socket at {}", socket_path.display()))?;
-    std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))?;
+    crate::platform_fs::set_file_mode(&socket_path, 0o600)?;
 
     let server_state = state.clone();
     let permits = Arc::new(Semaphore::new(32));
@@ -57,9 +59,19 @@ pub(in crate::web) fn start_ipc_server(
     Ok((lease, task))
 }
 
-pub(in crate::web) async fn handle_ipc_connection(
+#[cfg(not(unix))]
+pub(in crate::web) fn start_ipc_server(
+    state: &DaemonState,
+) -> Result<(crate::ipc::WebCoreLease, TokioJoinHandle<()>)> {
+    let lease = ipc::acquire_web_core(&state.paths)
+        .context("another Miyu core is already running or starting")?;
+    let task = tokio::spawn(async move {});
+    Ok((lease, task))
+}
+
+pub(in crate::web) async fn handle_ipc_connection<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     state: DaemonState,
-    mut stream: tokio::net::UnixStream,
+    mut stream: S,
 ) -> Result<()> {
     let Some(request) = tokio::time::timeout(
         Duration::from_secs(5),
@@ -729,9 +741,9 @@ pub(in crate::web) async fn switch_session_via_actor_reserved(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(in crate::web) async fn handle_ipc_turn(
+pub(in crate::web) async fn handle_ipc_turn<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     state: &DaemonState,
-    stream: &mut tokio::net::UnixStream,
+    stream: &mut S,
     content: String,
     mode: String,
     images: Vec<Option<ImageAttachment>>,

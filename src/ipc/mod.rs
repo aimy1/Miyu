@@ -16,11 +16,12 @@ use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 use std::path::Path;
 use std::{
-    fs::File, fs::OpenOptions, os::fd::AsRawFd, os::unix::fs::OpenOptionsExt,
-    os::unix::fs::PermissionsExt, os::unix::process::CommandExt, path::PathBuf, process::Stdio,
-    time::Duration,
+    fs::File, fs::OpenOptions, path::PathBuf, process::Stdio, time::Duration,
 };
+#[cfg(unix)]
+use std::{os::fd::AsRawFd, os::unix::fs::OpenOptionsExt, os::unix::fs::PermissionsExt, os::unix::process::CommandExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(unix)]
 use tokio::net::UnixStream;
 
 pub const ADMIN_BUSY_MESSAGE: &str = "Miyu is busy with another operation";
@@ -154,22 +155,26 @@ mod tests {
         assert_eq!(load_daemon_launch_config(&paths).unwrap(), config);
         let state = std::fs::read_to_string(paths.daemon_launch_state_file()).unwrap();
         assert!(!state.contains("very-secret"));
-        assert_eq!(
-            std::fs::metadata(password_path)
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o600
-        );
-        assert_eq!(
-            std::fs::metadata(paths.daemon_launch_state_file())
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o600
-        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(password_path)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+            assert_eq!(
+                std::fs::metadata(paths.daemon_launch_state_file())
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
     }
 
     #[test]
@@ -368,6 +373,7 @@ mod tests {
         assert_eq!(expected_protocol_version("unrelated error"), None);
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn framed_protocol_round_trips_over_unix_socket() {
         let (mut left, mut right) = UnixStream::pair().unwrap();
@@ -412,6 +418,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn oversized_frame_is_rejected_before_writing() {
         let (mut left, _right) = UnixStream::pair().unwrap();

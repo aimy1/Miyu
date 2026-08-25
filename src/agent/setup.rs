@@ -466,6 +466,10 @@ impl Agent {
         self.prepare_for_turn()
     }
 
+    pub fn config(&self) -> &AppConfig {
+        &self.config
+    }
+
     /// 平台(QQ 等)回合的工具轮数上限(platforms.max_tool_rounds,默认 32,
     /// 0=不限):平台回合失控时没人守在终端里按停——真机 web_search 同
     /// query 222 连就是这么烧起来的。

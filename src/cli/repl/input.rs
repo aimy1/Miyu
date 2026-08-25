@@ -28,19 +28,22 @@ pub(in crate::cli) fn read_live_repl_input(
         // 等待权自持:PTY 死亡后 crossterm 的 poll 会在内部对 HUP fd
         // 无限自旋、永不返回(实测),所以不能把"等 80ms"交给它——用裸
         // poll 等待并率先识别挂断,有输入就绪时才让 crossterm 取事件。
-        let mut pollfd = libc::pollfd {
-            fd: libc::STDIN_FILENO,
-            events: libc::POLLIN,
-            revents: 0,
-        };
-        let ready = unsafe { libc::poll(&mut pollfd, 1, 80) };
-        if ready == 1 && (pollfd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL)) != 0 {
-            return Ok(LiveReplOutcome::Exit);
+        #[cfg(unix)]
+        {
+            let mut pollfd = libc::pollfd {
+                fd: libc::STDIN_FILENO,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let ready = unsafe { libc::poll(&mut pollfd, 1, 80) };
+            if ready == 1 && (pollfd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL)) != 0 {
+                return Ok(LiveReplOutcome::Exit);
+            }
         }
-        // 就绪判定必须问 crossterm(它的内部缓冲对裸 poll 不可见):
-        // 一次 read 会把 fd 里的字节全部吞进内部缓冲,只看 fd 会让
-        // 积压按键滞留到下一次按键或超时才放行,打字手感直接变卡。
+        #[cfg(unix)]
         let has_input = event::poll(Duration::ZERO)?;
+        #[cfg(not(unix))]
+        let has_input = event::poll(Duration::from_millis(80))?;
         if !has_input {
             // Idle tick: structural changes redraw the whole tail; otherwise
             // only the strip repaints. While the user is actively typing the

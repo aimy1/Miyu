@@ -21,6 +21,7 @@ use crate::default_models::{
 };
 use crate::paths::MiyuPaths;
 use crate::prompts::default_system_prompt;
+use crate::voice::VoiceConfig;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -93,6 +94,8 @@ pub struct AppConfig {
     pub subagent_tiers: SubagentTiersConfig,
     #[serde(default, skip_serializing_if = "PlatformsConfig::is_empty")]
     pub platforms: PlatformsConfig,
+    #[serde(default, skip_serializing_if = "VoiceConfig::is_default")]
+    pub voice: VoiceConfig,
 }
 
 /// Provider prompt-cache tuning (v7, DeepSeek 高命中策略实测产物). The
@@ -502,6 +505,7 @@ impl Default for AppConfig {
             system_prompt: None,
             subagent_tiers: SubagentTiersConfig::default(),
             platforms: PlatformsConfig::default(),
+            voice: VoiceConfig::default(),
         }
     }
 }

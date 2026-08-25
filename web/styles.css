@@ -5686,6 +5686,202 @@ textarea.config-input {
   line-height: 1.55;
 }
 
+/* ── 自定义声音管理 ── */
+.voice-select-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.voice-select {
+  min-width: 190px;
+  max-width: 280px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--fs-ui);
+}
+
+.voice-custom-card {
+  overflow: hidden;
+  margin-top: 14px;
+  border-radius: 8px;
+  background: var(--surface-1);
+  box-shadow: var(--card-shadow);
+}
+
+.voice-custom-header {
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+
+.voice-custom-header h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-ui);
+  font-weight: 600;
+}
+
+.voice-custom-header p {
+  margin: 4px 0 0;
+  color: var(--text-soft);
+  font-size: var(--fs-meta);
+  line-height: 1.5;
+}
+
+.voice-add-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr) auto;
+  align-items: end;
+  padding: 14px 16px;
+  gap: 12px;
+  background: color-mix(in srgb, var(--surface-2) 30%, transparent);
+}
+
+@media (max-width: 760px) {
+  .voice-add-form {
+    grid-template-columns: 1fr;
+  }
+}
+
+.voice-field {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.voice-field-label {
+  color: var(--text-soft);
+  font-size: var(--fs-meta);
+  font-weight: 500;
+}
+
+.voice-id-input {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.voice-btn {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: var(--fs-meta);
+  font-weight: 600;
+  transition: background 150ms ease, transform 120ms ease, filter 150ms ease;
+  white-space: nowrap;
+}
+
+.voice-btn-primary {
+  background: var(--accent);
+  color: var(--md-sys-color-on-primary);
+}
+
+.voice-btn-primary:hover {
+  filter: brightness(1.08);
+}
+
+.voice-btn-primary:active {
+  transform: scale(0.96);
+}
+
+.voice-btn-secondary {
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.voice-btn-secondary:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.voice-btn-secondary:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.voice-btn-danger {
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+}
+
+.voice-btn-danger:hover {
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+.voice-list-section {
+  padding: 12px 16px 16px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+
+.voice-list-title {
+  margin-bottom: 8px;
+  color: var(--text-faint);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.voice-list-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.custom-voice-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
+  border-radius: 6px;
+  background: var(--surface-2);
+  gap: 12px;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.custom-voice-item:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--surface-2) 80%, var(--surface-1));
+}
+
+.custom-voice-info {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.custom-voice-name {
+  color: var(--text);
+  font-size: var(--fs-ui);
+  font-weight: 600;
+}
+
+.custom-voice-id {
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.custom-voice-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
+
 .qq-history-tool {
   margin-top: 22px;
   padding-top: 18px;
@@ -7473,3 +7669,64 @@ body.miyu-paused *::before,
 body.miyu-paused *::after {
   animation-play-state: paused !important;
 }
+
+/* ── Voice UI Controls ── */
+.voice-toggle-button {
+  transition: color 150ms ease, background-color 150ms ease, transform 100ms ease;
+  color: var(--text-soft);
+}
+
+.voice-toggle-button:hover {
+  color: var(--text-main);
+  background-color: var(--surface-hover);
+}
+
+.voice-toggle-button.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.voice-toggle-button.is-speaking {
+  animation: status-pulse 1.2s ease-in-out infinite;
+}
+
+.message-voice-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.message-voice-button:hover {
+  background: var(--surface-hover);
+  color: var(--text-main);
+}
+
+.message-voice-button.is-playing {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  animation: status-pulse 1.2s ease-in-out infinite;
+}
+
+.settings-action-button {
+  border: 1px solid var(--border-color);
+  background: var(--surface-2);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 140ms ease;
+}
+
+.settings-action-button:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+

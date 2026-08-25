@@ -359,7 +359,7 @@ impl StateStore {
             }
             Err(error) => return Err(error.into()),
         }
-        std::fs::set_permissions(&session_dir, std::fs::Permissions::from_mode(0o700))?;
+        crate::platform_fs::set_file_mode(&session_dir, 0o700)?;
         let canonical_dir = session_dir.canonicalize()?;
         let managed_target = |source_key: &str| -> Option<PathBuf> {
             let source = Path::new(source_key);
@@ -379,8 +379,12 @@ impl StateStore {
                 continue;
             };
             let mut temp = tempfile::NamedTempFile::new_in(&canonical_dir)?;
-            temp.as_file_mut()
-                .set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                temp.as_file_mut()
+                    .set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            }
             temp.write_all(&artifact.bytes)?;
             temp.as_file_mut().sync_all()?;
             temp.persist(&target)

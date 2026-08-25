@@ -35,24 +35,24 @@ pub fn spawn_provider_api_refresh(providers: Vec<crate::config::ProviderConfig>)
 pub(crate) fn fetch_provider_context_windows(
     provider: &crate::config::ProviderConfig,
 ) -> Result<Vec<ProviderApiCacheEntry>> {
-    let mut api_key = provider.api_key.as_deref().unwrap_or_default();
-    if api_key.is_empty() {
+    let base_url = provider.base_url.trim();
+    if base_url.is_empty() {
         return Ok(Vec::new());
     }
+
+    let mut api_key = provider.api_key.as_deref().unwrap_or_default().trim();
     let resolved_key;
     if let Some(env_name) = api_key.strip_prefix("$env:") {
         resolved_key = std::env::var(env_name).unwrap_or_default();
-        api_key = &resolved_key;
+        api_key = resolved_key.trim();
     }
-    if api_key.is_empty() {
-        return Ok(Vec::new());
-    }
-    let url = provider_models_url(&provider.base_url);
+
+    let url = provider_models_url(base_url);
     let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(provider.timeout_seconds.min(5)))
+        .timeout(Duration::from_secs(provider.timeout_seconds.min(5).max(2)))
         .build()?;
     let mut request = client
-        .get(url)
+        .get(&url)
         .header("Accept", "application/json")
         .header("User-Agent", "miyu-model-metadata");
     if !api_key.is_empty() {
@@ -66,8 +66,11 @@ pub(crate) fn fetch_provider_context_windows(
         .iter()
         .filter_map(|model| {
             let id = model.get("id")?.as_str()?.trim();
-            let context_window = api_context_window(model)?;
-            (!id.is_empty() && context_window > 0).then(|| ProviderApiCacheEntry {
+            if id.is_empty() {
+                return None;
+            }
+            let context_window = api_context_window(model).unwrap_or(8192);
+            Some(ProviderApiCacheEntry {
                 provider_id: provider.id.clone(),
                 model: id.to_string(),
                 context_window,

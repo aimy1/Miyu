@@ -25,8 +25,13 @@ pub(super) fn resume_session_lost(error: &anyhow::Error) -> bool {
 }
 
 fn kill_process_group(pid: u32) {
+    #[cfg(unix)]
     unsafe {
         libc::kill(-(pid as i32), libc::SIGKILL);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
     }
 }
 
@@ -82,8 +87,9 @@ where
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .process_group(0)
         .kill_on_drop(true);
+    #[cfg(unix)]
+    command.process_group(0);
     // MCP 工具调用的客户端超时:ask_question 这类交互工具要等人回答,
     // claude 默认的 MCP 超时等不起,放宽到 30 分钟。
     command.env("MCP_TOOL_TIMEOUT", "1800000");

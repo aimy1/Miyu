@@ -48,8 +48,12 @@ use directories::{BaseDirs, UserDirs};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
+#[cfg(unix)]
 use std::os::fd::AsRawFd;
+#[cfg(unix)]
 use std::os::unix::fs::{symlink, DirBuilderExt, OpenOptionsExt, PermissionsExt};
+#[cfg(windows)]
+use std::os::windows::fs::symlink_file as symlink;
 use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone)]

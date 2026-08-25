@@ -58,28 +58,31 @@ pub(in crate::cli) async fn run_remote_repl(paths: &MiyuPaths, mut mode: AgentMo
     // jobs from a signal task before dying. SIGKILL still leaks them — the
     // daemon keeps those running and their completion wakes queue up.
     {
-        let paths = paths.clone();
-        let feed = jobs_shared.clone();
-        tokio::spawn(async move {
-            use tokio::signal::unix::{signal, SignalKind};
-            let (Ok(mut hangup), Ok(mut terminate)) = (
-                signal(SignalKind::hangup()),
-                signal(SignalKind::terminate()),
-            ) else {
-                return;
-            };
-            tokio::select! {
-                _ = hangup.recv() => {}
-                _ = terminate.recv() => {}
-            }
-            // 后台任务归 daemon 管:前端死了任务照跑,完成后有唤醒
-            // (验收:dsh 语义,前端退出不拖死会话任务)。
-            let _ = (&paths, &feed);
-            // SIGTERM 时终端往往还活着:process::exit 绕过 Drop,先尽力
-            // 恢复 raw mode,否则用户的 shell 停在原始模式里。
-            let _ = crossterm::terminal::disable_raw_mode();
-            std::process::exit(0);
-        });
+        #[cfg(unix)]
+        {
+            let paths = paths.clone();
+            let feed = jobs_shared.clone();
+            tokio::spawn(async move {
+                use tokio::signal::unix::{signal, SignalKind};
+                let (Ok(mut hangup), Ok(mut terminate)) = (
+                    signal(SignalKind::hangup()),
+                    signal(SignalKind::terminate()),
+                ) else {
+                    return;
+                };
+                tokio::select! {
+                    _ = hangup.recv() => {}
+                    _ = terminate.recv() => {}
+                }
+                // 后台任务归 daemon 管:前端死了任务照跑,完成后有唤醒
+                // (验收:dsh 语义,前端退出不拖死会话任务)。
+                let _ = (&paths, &feed);
+                // SIGTERM 时终端往往还活着:process::exit 绕过 Drop,先尽力
+                // 恢复 raw mode,否则用户的 shell 停在原始模式里。
+                let _ = crossterm::terminal::disable_raw_mode();
+                std::process::exit(0);
+            });
+        }
     }
 
     // Redraw the tail of the session we just resumed. The tail is not on
@@ -978,6 +981,15 @@ pub(in crate::cli) async fn run_remote_repl(paths: &MiyuPaths, mut mode: AgentMo
                     repl_note(
                         &mut live_repl,
                         &format!("\x1b[2m{}\x1b[0m\n", print_wipe_message()),
+                    )?;
+                }
+                ReplSlashCommand::Voice => {
+                    repl_note(
+                        &mut live_repl,
+                        &format!(
+                            "\x1b[2m{}\x1b[0m\n",
+                            t("voice control is configured via `miyu normal` direct mode or web config", "语音控制可在 direct REPL 模式或 WebUI 设置面板中配置")
+                        ),
                     )?;
                 }
             }

@@ -40,6 +40,7 @@ pub(crate) enum ReplSlashCommand {
     History,
     Clear,
     Help,
+    Voice,
     Exit,
 }
 
@@ -237,6 +238,14 @@ pub(crate) const REPL_COMMAND_TABLE: &[ReplCommandSpec] = &[
         help_en: "show this help",
         help_zh: "显示此帮助",
         web: false,
+    },
+    ReplCommandSpec {
+        name: "/voice",
+        command: ReplSlashCommand::Voice,
+        arg_hint: "[on|off|neuro|evil|chinese]",
+        help_en: "toggle voice or switch Neuro voice presets",
+        help_zh: "开关语音或切换 Neuro 声音预设",
+        web: true,
     },
     ReplCommandSpec {
         name: "/exit",

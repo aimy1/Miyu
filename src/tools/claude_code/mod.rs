@@ -84,8 +84,7 @@ mod tests {
             ),
         )
         .unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::platform_fs::set_file_mode(&path, 0o755).unwrap();
         path.display().to_string()
     }
 
@@ -373,7 +372,15 @@ printf '{"type":"result","subtype":"success","is_error":false,"duration_ms":1,"n
         for pid in [shell_pid, sleep_pid] {
             let mut alive = true;
             for _ in 0..20 {
-                alive = unsafe { libc::kill(pid, 0) } == 0;
+                #[cfg(unix)]
+                {
+                    alive = unsafe { libc::kill(pid, 0) } == 0;
+                }
+                #[cfg(not(unix))]
+                {
+                    let _ = pid;
+                    alive = false;
+                }
                 if !alive {
                     break;
                 }

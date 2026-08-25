@@ -224,14 +224,17 @@ pub(in crate::llm::openai_compatible) fn lock_thinking_variant_preferences(paths
                 lock_path.display()
             )
         })?;
-    let result = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) };
-    if result != 0 {
-        return Err(std::io::Error::last_os_error()).with_context(|| {
-            format!(
-                "failed to lock thinking variant state: {}",
-                lock_path.display()
-            )
-        });
+    #[cfg(unix)]
+    {
+        let result = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error()).with_context(|| {
+                format!(
+                    "failed to lock thinking variant state: {}",
+                    lock_path.display()
+                )
+            });
+        }
     }
     Ok(lock)
 }

@@ -44,10 +44,12 @@ mod tests;
 // `ipc::send` 会突然解析到子模块上——编译期就报，但报错信息（找不到 send）
 // 离真正的原因很远。
 mod ipc_server;
+mod voice_api;
 
 use actor::*;
 use dto::*;
 use qq_history::*;
+#[cfg(unix)]
 use tty::*;
 use assets::*;
 use attachments::*;
@@ -57,6 +59,7 @@ use persona::*;
 use prompt_files::*;
 use security::*;
 use shared_files::*;
+use voice_api::*;
 pub(crate) use server::run;
 use server::*;
 use bridge_progress::*;
@@ -106,13 +109,14 @@ use std::convert::Infallible;
 use std::future::IntoFuture;
 use std::io::{self, IsTerminal, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path as FilePath, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::{broadcast, mpsc, oneshot, Semaphore};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle as TokioJoinHandle;
 
 use crate::platforms::{self, PlatformRuntime};

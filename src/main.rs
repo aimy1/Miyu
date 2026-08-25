@@ -1,13 +1,28 @@
 //! 可执行入口。真正的模块树与启动流程都在 `lib.rs`，这里只负责把错误打出来
 //! 并给出退出码。
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
+fn main() {
     limit_malloc_arenas();
-    if let Err(error) = miyu::run().await {
-        eprintln!("{}: {error:#}", miyu::error_label());
-        std::process::exit(1);
-    }
+    let thread = std::thread::Builder::new()
+        .name("miyu-main".into())
+        .stack_size(8 * 1024 * 1024);
+
+    let handle = thread
+        .spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("failed to build tokio runtime");
+            rt.block_on(async {
+                if let Err(error) = miyu::run().await {
+                    eprintln!("{}: {error:#}", miyu::error_label());
+                    std::process::exit(1);
+                }
+            });
+        })
+        .expect("failed to spawn main thread");
+
+    let _ = handle.join();
 }
 
 /// glibc 默认按 8×CPU 数开 malloc arena，而 daemon 常驻只有个位数线程，

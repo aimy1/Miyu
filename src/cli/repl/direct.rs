@@ -75,12 +75,30 @@ pub(in crate::cli) async fn run_chat_with_images(
         command_output_lines,
     );
     renderer.start_waiting()?;
+    let mut voice_service = if display_config.voice.enabled {
+        Some(crate::voice::VoiceService::new(display_config.voice.clone()))
+    } else {
+        None
+    };
     let result = agent
         .chat_stream_with_images(&message, &pasted_images, |event| {
+            if let AgentEvent::Chunk(ref chunk) = event {
+                if chunk.kind == crate::llm::ChatStreamKind::Content {
+                    if let Some(voice) = voice_service.as_mut() {
+                        voice.feed_delta(&chunk.text);
+                    }
+                }
+            }
             handle_agent_event(&mut renderer, event)
         })
         .await;
     renderer.finish()?;
+    if let Some(voice) = voice_service.as_mut() {
+        voice.finish_stream();
+        while voice.is_playing() {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
     let result = match result {
         Ok(result) => result,
         Err(err) if crate::question::is_question_cancelled(&err) => return Ok(()),
@@ -215,10 +233,30 @@ pub(in crate::cli) async fn run_chat_with_options(
         command_output_lines,
     );
     renderer.start_waiting()?;
+    let mut voice_service = if display_config.voice.enabled {
+        Some(crate::voice::VoiceService::new(display_config.voice.clone()))
+    } else {
+        None
+    };
     let result = agent
-        .chat_stream(&message, |event| handle_agent_event(&mut renderer, event))
+        .chat_stream(&message, |event| {
+            if let AgentEvent::Chunk(ref chunk) = event {
+                if chunk.kind == crate::llm::ChatStreamKind::Content {
+                    if let Some(voice) = voice_service.as_mut() {
+                        voice.feed_delta(&chunk.text);
+                    }
+                }
+            }
+            handle_agent_event(&mut renderer, event)
+        })
         .await;
     renderer.finish()?;
+    if let Some(voice) = voice_service.as_mut() {
+        voice.finish_stream();
+        while voice.is_playing() {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
     let result = match result {
         Ok(result) => result,
         Err(err) if crate::question::is_question_cancelled(&err) => return Ok(()),
@@ -469,6 +507,46 @@ pub(in crate::cli) async fn run_direct_repl(
                 live.set_footer(footer.clone());
             }
             println!("{}", t("configuration reloaded", "配置已重新加载"));
+            println!();
+            continue;
+        }
+        if command.eq_ignore_ascii_case("/voice") {
+            let arg = command_args.trim().to_lowercase();
+            match arg.as_str() {
+                "on" => {
+                    config.voice.enabled = true;
+                    println!("{}", t("voice playback enabled", "已开启语音播放"));
+                }
+                "off" => {
+                    config.voice.enabled = false;
+                    println!("{}", t("voice playback disabled", "已关闭语音播放"));
+                }
+                "neuro" | "classic" | "neuro-classic" => {
+                    config.voice.enabled = true;
+                    crate::voice::VoicePreset::NeuroClassic.apply_to(&mut config.voice);
+                    println!("{}", t("voice preset switched to Neuro-sama (classic)", "已切换至 Neuro-sama (经典萝莉音) 预设"));
+                }
+                "evil" | "neuro-evil" => {
+                    config.voice.enabled = true;
+                    crate::voice::VoicePreset::NeuroEvil.apply_to(&mut config.voice);
+                    println!("{}", t("voice preset switched to Evil Neuro", "已切换至 Evil Neuro (毒舌音) 预设"));
+                }
+                "chinese" | "miyu" | "miyu-chinese" => {
+                    config.voice.enabled = true;
+                    crate::voice::VoicePreset::MiyuChinese.apply_to(&mut config.voice);
+                    println!("{}", t("voice preset switched to Miyu (Chinese)", "已切换至 Miyu (中文甜美音) 预设"));
+                }
+                _ => {
+                    let status = if config.voice.enabled { t("enabled", "开启") } else { t("disabled", "关闭") };
+                    println!("{}: {}", t("current voice status", "当前语音状态"), status);
+                    println!("{}: {}", t("voice", "当前音色"), config.voice.voice);
+                    println!("{}: {}", t("pitch", "音调"), config.voice.pitch);
+                    println!("{}: {}", t("rate", "语速"), config.voice.rate);
+                    println!("{}", t("usage: /voice [on|off|neuro|evil|chinese]", "用法: /voice [on|off|neuro|evil|chinese]"));
+                }
+            }
+            let _ = config.save(paths);
+            agent.reload_config(config.clone(), client.clone())?;
             println!();
             continue;
         }

@@ -62,17 +62,25 @@ pub(in crate::web) fn push_rendered_line(line: &str, style: WriteLineStyle, out:
 /// 三道闸的第 2、3 道:shell 活着、还挂在记录的 tty 上、且自己就是终端前台
 /// 进程组(即停在提示符,没在跑别的程序)。
 pub(in crate::web) fn origin_shell_at_prompt(origin: &crate::ipc::OriginTty) -> bool {
-    let pid = origin.shell_pid;
-    let Ok(stdin_target) = std::fs::read_link(format!("/proc/{pid}/fd/0")) else {
-        return false;
-    };
-    if stdin_target != origin.path {
-        return false;
+    #[cfg(target_os = "linux")]
+    {
+        let pid = origin.shell_pid;
+        let Ok(stdin_target) = std::fs::read_link(format!("/proc/{pid}/fd/0")) else {
+            return false;
+        };
+        if stdin_target != origin.path {
+            return false;
+        }
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+            return false;
+        };
+        matches!(parse_stat_pgrp_tpgid(&stat), Some((pgrp, tpgid)) if pgrp == tpgid)
     }
-    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
-        return false;
-    };
-    matches!(parse_stat_pgrp_tpgid(&stat), Some((pgrp, tpgid)) if pgrp == tpgid)
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = origin;
+        false
+    }
 }
 
 /// /proc/pid/stat 的 comm 字段可含空格和括号,必须从最后一个 \')\' 之后再按空白

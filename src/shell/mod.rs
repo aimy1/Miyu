@@ -7,6 +7,7 @@ use anyhow::{bail, Context, Result};
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
@@ -112,19 +113,30 @@ fn write_text_atomically(path: &Path, contents: &str) -> Result<()> {
     let parent = path
         .parent()
         .context("shell startup file has no parent directory")?;
-    let mode = fs::symlink_metadata(path)
-        .ok()
-        .map(|metadata| metadata.permissions().mode() & 0o7777)
-        .unwrap_or(0o600);
+    #[cfg(unix)]
+    let mode = {
+        use std::os::unix::fs::PermissionsExt;
+        fs::symlink_metadata(path)
+            .ok()
+            .map(|metadata| metadata.permissions().mode() & 0o7777)
+            .unwrap_or(0o600)
+    };
+    #[cfg(not(unix))]
+    let _mode = 0o600;
+
     let temporary = parent.join(format!(
         ".miyu-hook-{}-{}",
         std::process::id(),
         rand::random::<u64>()
     ));
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .mode(mode)
+    let mut options = OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(mode);
+    }
+    let mut file = options
         .open(&temporary)
         .with_context(|| {
             format!(
@@ -472,7 +484,18 @@ fn is_executable_file(path: &Path) -> bool {
     let Ok(metadata) = fs::metadata(path) else {
         return false;
     };
-    metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }
 
 #[cfg(test)]

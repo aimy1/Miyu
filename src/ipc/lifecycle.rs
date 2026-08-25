@@ -80,7 +80,7 @@ pub fn acquire_web_core(paths: &MiyuPaths) -> Result<WebCoreLease> {
 pub(crate) fn prepare_runtime_dir(paths: &MiyuPaths) -> Result<()> {
     let runtime_dir = paths.runtime_dir();
     std::fs::create_dir_all(&runtime_dir)?;
-    std::fs::set_permissions(&runtime_dir, std::fs::Permissions::from_mode(0o700))?;
+    crate::platform_fs::set_file_mode(&runtime_dir, 0o700)?;
     Ok(())
 }
 
@@ -97,29 +97,41 @@ pub(crate) fn acquire_lock(lock_path: PathBuf) -> Result<File> {
         .read(true)
         .write(true)
         .open(lock_path)?;
-    let result = unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-    if result != 0 {
-        bail!(
-            "{}",
-            crate::i18n::text(
-                "another Miyu core (the daemon or another direct REPL) holds this home; stop it (miyu daemon stop) or drop MIYU_DIRECT to attach to the daemon",
-                "另一个 Miyu 核心(daemon 或另一个直连 REPL)正占用本机身份;直连模式与它互斥——先 miyu daemon stop,或去掉 MIYU_DIRECT 改为连接 daemon"
-            )
-        );
+    #[cfg(unix)]
+    {
+        let result = unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if result != 0 {
+            bail!(
+                "{}",
+                crate::i18n::text(
+                    "another Miyu core (the daemon or another direct REPL) holds this home; stop it (miyu daemon stop) or drop MIYU_DIRECT to attach to the daemon",
+                    "另一个 Miyu 核心(daemon 或另一个直连 REPL)正占用本机身份;直连模式与它互斥——先 miyu daemon stop,或去掉 MIYU_DIRECT 改为连接 daemon"
+                )
+            );
+        }
     }
     Ok(lock_file)
 }
 
 pub(crate) fn unlock(lock_file: &File) {
+    #[cfg(unix)]
     unsafe {
         libc::flock(lock_file.as_raw_fd(), libc::LOCK_UN);
     }
+    #[cfg(not(unix))]
+    let _ = lock_file;
 }
 
+#[cfg(unix)]
 pub async fn connect(path: &Path) -> Result<UnixStream> {
     UnixStream::connect(path)
         .await
         .with_context(|| format!("connecting to Miyu core at {}", path.display()))
+}
+
+#[cfg(not(unix))]
+pub async fn connect(path: &Path) -> Result<tokio::net::TcpStream> {
+    bail!("Unix domain sockets are not supported on this platform: {}", path.display());
 }
 
 pub async fn daemon_info(paths: &MiyuPaths) -> Option<DaemonInfo> {
@@ -419,9 +431,12 @@ pub(crate) fn acquire_starter(paths: &MiyuPaths) -> Result<StarterLease> {
         .read(true)
         .write(true)
         .open(paths.daemon_start_lock())?;
-    let result = unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX) };
-    if result != 0 {
-        return Err(std::io::Error::last_os_error().into());
+    #[cfg(unix)]
+    {
+        let result = unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX) };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
     }
     Ok(StarterLease { lock_file })
 }
@@ -446,6 +461,7 @@ pub(crate) fn start_daemon_process(
         .stdin(Stdio::null())
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log));
+    #[cfg(unix)]
     unsafe {
         command.pre_exec(|| {
             if libc::setsid() < 0 {

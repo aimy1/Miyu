@@ -341,7 +341,7 @@ pub(crate) fn expected_protocol_version(message: &str) -> Option<u16> {
         .ok()
 }
 
-pub async fn send<T: Serialize>(stream: &mut UnixStream, value: &T) -> Result<()> {
+pub async fn send<T: Serialize>(stream: &mut (impl AsyncWriteExt + Unpin), value: &T) -> Result<()> {
     let bytes = serde_json::to_vec(value)?;
     if bytes.len() > MAX_FRAME_BYTES {
         bail!("IPC frame exceeds the 24 MiB limit");
@@ -352,7 +352,7 @@ pub async fn send<T: Serialize>(stream: &mut UnixStream, value: &T) -> Result<()
     Ok(())
 }
 
-pub async fn receive<T: DeserializeOwned>(stream: &mut UnixStream) -> Result<Option<T>> {
+pub async fn receive<T: DeserializeOwned>(stream: &mut (impl AsyncReadExt + Unpin)) -> Result<Option<T>> {
     let length = match stream.read_u32().await {
         Ok(length) => length as usize,
         Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),

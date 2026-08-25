@@ -113,10 +113,10 @@ pub(in crate::tools) struct CommandProcessGroup {
 }
 
 impl CommandProcessGroup {
-    pub(in crate::tools) fn new(child_id: Option<u32>) -> Self {
+    pub(in crate::tools) fn new(_child_id: Option<u32>) -> Self {
         Self {
             #[cfg(unix)]
-            pgid: child_id.and_then(|id| i32::try_from(id).ok()),
+            pgid: _child_id.and_then(|id| i32::try_from(id).ok()),
         }
     }
 

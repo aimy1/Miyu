@@ -198,7 +198,7 @@ pub(crate) fn remap_managed_password(
 pub(crate) fn write_private_state(path: &Path, contents: &[u8]) -> Result<()> {
     let parent = path.parent().context("Miyu state file has no parent")?;
     std::fs::create_dir_all(parent)?;
-    std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
+    crate::platform_fs::set_file_mode(parent, 0o700)?;
     let temporary = parent.join(format!(
         ".{}.tmp-{}-{}",
         path.file_name().unwrap_or_default().to_string_lossy(),
@@ -206,15 +206,21 @@ pub(crate) fn write_private_state(path: &Path, contents: &[u8]) -> Result<()> {
         rand::random::<u64>()
     ));
     let result = (|| -> Result<()> {
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
-            .open(&temporary)?;
+        let mut options = OpenOptions::new();
+        options.create_new(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary)?;
         std::io::Write::write_all(&mut file, contents)?;
         file.sync_all()?;
         std::fs::rename(&temporary, path)?;
+        #[cfg(unix)]
         let directory_sync = File::open(parent).and_then(|directory| directory.sync_all());
+        #[cfg(not(unix))]
+        let directory_sync = Ok(());
         finish_private_state_commit(parent, directory_sync)
     })();
     if result.is_err() {

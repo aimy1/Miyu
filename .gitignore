@@ -1,4 +1,9 @@
 /target/
+/models/
+*.gguf
+*.mp3
+*.wav
+*.bin
 /.idea/
 /.vscode/
 .DS_Store

@@ -4,6 +4,7 @@ use crate::tools::patch_preview::write_with_patch_preview;
 use anyhow::{bail, Result};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 
@@ -138,7 +139,7 @@ where
                     Map::new(),
                 )?;
                 if managed_artifact {
-                    std::fs::set_permissions(&change.path, std::fs::Permissions::from_mode(0o600))?;
+                    crate::platform_fs::set_file_mode(&change.path, 0o600)?;
                     progress.report_artifact(change.path.clone(), String::new());
                 }
             }
@@ -747,7 +748,7 @@ fn ensure_private_directory(path: &Path) -> Result<()> {
     } else {
         std::fs::create_dir_all(path)?;
     }
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+    crate::platform_fs::set_file_mode(path, 0o700)?;
     Ok(())
 }
 
@@ -931,7 +932,9 @@ mod tests {
         );
         let notes = session_dir.join("notes.txt");
         assert_eq!(std::fs::read_to_string(&notes).unwrap(), "Follow up.\n");
+        #[cfg(unix)]
         for path in [&report, &notes] {
+            use std::os::unix::fs::PermissionsExt;
             assert_eq!(
                 std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
                 0o600

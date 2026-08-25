@@ -175,9 +175,9 @@ pub async fn run(paths: MiyuPaths, args: WebArgs) -> Result<()> {
 
 /// Attach a client to an already-running turn (background-command wake):
 /// forwards its event frames until terminal, without owning the run.
-pub(in crate::web) async fn follow_run(
+pub(in crate::web) async fn follow_run<S: AsyncWriteExt + Unpin>(
     state: &DaemonState,
-    stream: &mut tokio::net::UnixStream,
+    stream: &mut S,
     run_id: String,
 ) -> Result<()> {
     let mut subscription = state.events.subscribe_after(state.events.latest_id());
@@ -284,6 +284,7 @@ pub(in crate::web) fn router(state: DaemonState) -> Router {
             post(upload_persona_asset).layer(DefaultBodyLimit::max(PERSONA_ASSET_LIMIT)),
         )
         .route("/api/config", get(get_config).put(update_config))
+        .route("/api/voice/synthesize", post(synthesize_voice_http))
         .route(
             "/api/qq-group-management/history",
             get(qq_group_history_http),

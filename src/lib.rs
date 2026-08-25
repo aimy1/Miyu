@@ -28,6 +28,7 @@ mod notify;
 mod paths;
 mod persona_hint;
 mod platform_types;
+pub mod platform_fs;
 mod platforms;
 mod prompts;
 mod question;
@@ -43,6 +44,7 @@ mod token_counter;
 mod token_estimate;
 mod tools;
 mod transfer;
+pub mod voice;
 mod web;
 
 use anyhow::Result;

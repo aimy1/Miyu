@@ -40,6 +40,7 @@ pub(in crate::web) struct WebDisplayConfig {
     pub(in crate::web) command_output_lines: usize,
     pub(in crate::web) mixed_model_endpoint_display: String,
     pub(in crate::web) show_mixed_model_endpoint: bool,
+    pub(in crate::web) voice: crate::voice::types::VoiceConfig,
 }
 
 pub(in crate::web) async fn get_config(
@@ -785,5 +786,6 @@ pub(in crate::web) fn web_display_config(config: &AppConfig) -> WebDisplayConfig
         show_mixed_model_endpoint: config.active_provider_model_choices().len() > 1
             && matches!(mixed_model_endpoint_display.as_str(), "interactive" | "all"),
         mixed_model_endpoint_display,
+        voice: config.voice.clone(),
     }
 }

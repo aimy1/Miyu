@@ -141,6 +141,22 @@ pub(in crate::web) struct JobWakeRun {
 /// 3. shell 空闲在前台提示符(tpgid==pgrp)——正开着 vim/htop 时绝不能撕屏。
 /// 追加式输出,无光标控制;每次落笔前重查第 3 道闸,中途被占立即收笔并补
 /// 桌面通知。物理写入走专职线程,^S 流控卡死也只占一根线程。
+#[cfg(not(unix))]
+pub(in crate::web) async fn stream_job_wake_to_origin_tty(
+    state: DaemonState,
+    completion: tools::jobs::JobCompletion,
+    _wake: JobWakeRun,
+) {
+    let config = crate::config::AppConfig::load_or_default(&state.paths).unwrap_or_default();
+    if config.notifications.enabled {
+        crate::notify::notify(
+            &format!("Miyu 后台任务跟进 · {}", completion.title),
+            "任务已完成,跟进回复在会话里。",
+        );
+    }
+}
+
+#[cfg(unix)]
 pub(in crate::web) async fn stream_job_wake_to_origin_tty(
     state: DaemonState,
     completion: tools::jobs::JobCompletion,
@@ -393,6 +409,7 @@ pub(in crate::web) async fn stream_job_wake_to_origin_tty(
 
 /// 专职写线程:tty 是同步阻塞设备(^S 流控可以永久卡住 write),隔离在自己
 /// 的线程里,卡死也只占一根线程,不拖累 daemon 的 async runtime。
+#[cfg(unix)]
 pub(in crate::web) fn origin_tty_writer(
     mut tty: std::fs::File,
     shell_pid: u32,
@@ -410,6 +427,7 @@ pub(in crate::web) fn origin_tty_writer(
                 let _ = tty.flush();
                 // 提示符被我们的输出推到半空,SIGWINCH 让 shell(fish/zsh/新
                 // bash 的 readline 都处理)原地重绘一行干净的提示符。
+                #[cfg(unix)]
                 unsafe {
                     libc::kill(shell_pid as i32, libc::SIGWINCH);
                 }

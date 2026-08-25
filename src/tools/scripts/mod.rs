@@ -158,13 +158,13 @@ fn clip_output(value: &str) -> String {
     }
 }
 
-fn make_executable(path: &Path) -> Result<()> {
+fn make_executable(_path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(path)?.permissions();
+        let mut perms = std::fs::metadata(_path)?.permissions();
         perms.set_mode(perms.mode() | 0o111);
-        std::fs::set_permissions(path, perms)?;
+        std::fs::set_permissions(_path, perms)?;
     }
     Ok(())
 }

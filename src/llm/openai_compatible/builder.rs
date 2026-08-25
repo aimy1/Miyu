@@ -373,7 +373,7 @@ impl OpenAiCompatibleClient {
 pub(in crate::llm::openai_compatible) fn claude_code_runtime(
     endpoints: &[LlmEndpoint],
     config: &AppConfig,
-    paths: &MiyuPaths,
+    _paths: &MiyuPaths,
 ) -> Option<Arc<ClaudeCodeRuntime>> {
     if !endpoints
         .iter()

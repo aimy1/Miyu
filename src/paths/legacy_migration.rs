@@ -71,7 +71,12 @@ pub(crate) fn current_process_is_daemon() -> bool {
 }
 
 pub(crate) fn daemon_is_running_at(runtime_dir: &Path, current_process_is_daemon: bool) -> bool {
-    std::os::unix::net::UnixStream::connect(runtime_dir.join("core.sock")).is_ok()
+    #[cfg(unix)]
+    let sock_open = std::os::unix::net::UnixStream::connect(runtime_dir.join("core.sock")).is_ok();
+    #[cfg(not(unix))]
+    let sock_open = false;
+
+    sock_open
         || runtime_lock_is_held(&runtime_dir.join("core.lock"))
         || (!current_process_is_daemon && runtime_lock_is_held(&runtime_dir.join("starter.lock")))
 }
@@ -94,23 +99,31 @@ pub(crate) fn marker_exists_at(path: &Path, label: &str) -> Result<bool> {
 }
 
 pub(crate) fn try_acquire_runtime_lock(path: &Path) -> Result<Option<File>> {
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .mode(0o600)
-        .open(path)?;
-    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-    if result == 0 {
-        return Ok(Some(file));
-    }
-    let error = std::io::Error::last_os_error();
-    if matches!(error.raw_os_error(), Some(code) if code == libc::EWOULDBLOCK || code == libc::EAGAIN)
+    let mut options = OpenOptions::new();
+    options.create(true).truncate(false).read(true).write(true);
+    #[cfg(unix)]
     {
-        Ok(None)
-    } else {
-        Err(error.into())
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if result == 0 {
+            return Ok(Some(file));
+        }
+        let error = std::io::Error::last_os_error();
+        if matches!(error.raw_os_error(), Some(code) if code == libc::EWOULDBLOCK || code == libc::EAGAIN)
+        {
+            Ok(None)
+        } else {
+            Err(error.into())
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(Some(file))
     }
 }
 
@@ -133,6 +146,7 @@ pub(crate) struct MigrationLease(File);
 
 impl Drop for MigrationLease {
     fn drop(&mut self) {
+        #[cfg(unix)]
         unsafe {
             libc::flock(self.0.as_raw_fd(), libc::LOCK_UN);
         }
@@ -157,27 +171,39 @@ pub(crate) fn legacy_daemon_is_running_at(legacy: &LegacyLayout, xdg_runtime_dir
         .into_iter()
         .map(|runtime_dir| runtime_dir.join("miyu"))
         .any(|runtime_dir| {
-            std::os::unix::net::UnixStream::connect(runtime_dir.join("core.sock")).is_ok()
+            #[cfg(unix)]
+            let sock_open = std::os::unix::net::UnixStream::connect(runtime_dir.join("core.sock")).is_ok();
+            #[cfg(not(unix))]
+            let sock_open = false;
+
+            sock_open
                 || runtime_lock_is_held(&runtime_dir.join("core.lock"))
                 || runtime_lock_is_held(&runtime_dir.join("starter.lock"))
         })
 }
 
 pub(crate) fn runtime_lock_is_held(path: &Path) -> bool {
-    let file = match OpenOptions::new().read(true).write(true).open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return false,
-        // Failure to inspect an existing lock must not authorize migration.
-        Err(_) => return true,
-    };
-    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-    if result == 0 {
-        unsafe {
-            libc::flock(file.as_raw_fd(), libc::LOCK_UN);
+    #[cfg(unix)]
+    {
+        let file = match OpenOptions::new().read(true).write(true).open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return false,
+            Err(_) => return true,
+        };
+        let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if result == 0 {
+            unsafe {
+                libc::flock(file.as_raw_fd(), libc::LOCK_UN);
+            }
+            false
+        } else {
+            true
         }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
         false
-    } else {
-        true
     }
 }
 
@@ -306,28 +332,44 @@ pub(crate) fn entry_exists(path: &Path) -> Result<bool> {
 }
 
 pub(crate) fn acquire_migration_lock(root: &Path) -> Result<MigrationLease> {
-    // Lock the directory itself so a failed preflight never leaves a lock file
-    // behind in an otherwise untouched destination layout.
-    let file = File::open(root)
-        .with_context(|| format!("opening migration lock directory {}", root.display()))?;
-    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
-    if result != 0 {
-        return Err(std::io::Error::last_os_error()).context("locking Miyu directory migration");
+    #[cfg(unix)]
+    {
+        let file = File::open(root)
+            .with_context(|| format!("opening migration lock directory {}", root.display()))?;
+        let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error()).context("locking Miyu directory migration");
+        }
+        Ok(MigrationLease(file))
     }
-    Ok(MigrationLease(file))
+    #[cfg(not(unix))]
+    {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(root.join(".migration_lock"))
+            .with_context(|| format!("opening migration lock file {}", root.display()))?;
+        Ok(MigrationLease(file))
+    }
 }
 
 pub(crate) fn ensure_private_dir(path: &Path) -> Result<()> {
     ensure_existing_directory(path)?;
     if !entry_exists(path)? {
         let mut builder = fs::DirBuilder::new();
-        builder.recursive(true).mode(0o700);
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
         builder
             .create(path)
             .with_context(|| format!("creating {}", path.display()))?;
     }
     ensure_existing_directory(path)?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+    crate::platform_fs::set_file_mode(path, 0o700)
         .with_context(|| format!("securing {}", path.display()))?;
     Ok(())
 }
@@ -371,10 +413,14 @@ pub(crate) fn write_marker(path: &Path) -> Result<()> {
         std::process::id(),
         rand::random::<u64>()
     ));
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .mode(0o600)
+    let mut options = OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
         .open(&temporary)
         .with_context(|| format!("creating {}", temporary.display()))?;
     file.write_all(b"1\n")?;
@@ -703,11 +749,15 @@ pub(crate) fn copy_entry(source: &Path, metadata: &fs::Metadata, destination: &P
         rand::random::<u64>()
     ));
     let mut input = File::open(source)?;
-    let mut output = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .mode(metadata.permissions().mode())
-        .open(&temporary)?;
+    let mut options = OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::fs::PermissionsExt;
+        options.mode(metadata.permissions().mode());
+    }
+    let mut output = options.open(&temporary)?;
     std::io::copy(&mut input, &mut output)?;
     output.sync_all()?;
     fs::rename(&temporary, destination)?;
@@ -716,9 +766,12 @@ pub(crate) fn copy_entry(source: &Path, metadata: &fs::Metadata, destination: &P
 }
 
 pub(crate) fn sync_parent(path: &Path) -> Result<()> {
+    #[cfg(unix)]
     if let Some(parent) = path.parent() {
         File::open(parent)?.sync_all()?;
     }
+    #[cfg(not(unix))]
+    let _ = path;
     Ok(())
 }
 
@@ -733,10 +786,18 @@ pub(crate) fn entries_identical(
             && right_meta.file_type().is_symlink()
             && fs::read_link(left)? == fs::read_link(right)?);
     }
+    #[cfg(unix)]
+    let mode_diff = {
+        use std::os::unix::fs::PermissionsExt;
+        left_meta.permissions().mode() & 0o7777 != right_meta.permissions().mode() & 0o7777
+    };
+    #[cfg(not(unix))]
+    let mode_diff = false;
+
     if !left_meta.is_file()
         || !right_meta.is_file()
         || left_meta.len() != right_meta.len()
-        || left_meta.permissions().mode() & 0o7777 != right_meta.permissions().mode() & 0o7777
+        || mode_diff
     {
         return Ok(false);
     }

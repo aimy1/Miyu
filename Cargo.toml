@@ -59,6 +59,7 @@ termimad = "0.34"
 tempfile = "3.15"
 tar = "0.4"
 tokio = { version = "1.38", features = ["io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-webpki-roots", "handshake", "connect"] }
 tokio-util = { version = "0.7", features = ["io"] }
 trash = "5.2"
 tracing = { version = "0.1", default-features = false, features = ["std"] }

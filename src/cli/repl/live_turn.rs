@@ -155,10 +155,24 @@ pub(in crate::cli) async fn run_live_agent_turn(
     renderer.start_waiting()?;
     live.apply_renderer_frame(renderer)?;
 
+    let voice_service = if agent.config().voice.enabled {
+        Some(crate::voice::VoiceService::new(agent.config().voice.clone()))
+    } else {
+        None
+    };
+
     let result = {
         let live_cell = std::cell::RefCell::new(&mut *live);
         let renderer_cell = std::cell::RefCell::new(&mut *renderer);
+        let voice_cell = std::cell::RefCell::new(voice_service);
         let chat = agent.chat_stream_with_control(input.content, input.images, control, |event| {
+            if let AgentEvent::Chunk(ref chunk) = event {
+                if chunk.kind == crate::llm::ChatStreamKind::Content {
+                    if let Some(voice) = voice_cell.borrow_mut().as_mut() {
+                        voice.feed_delta(&chunk.text);
+                    }
+                }
+            }
             handle_live_agent_event(
                 &mut live_cell.borrow_mut(),
                 &mut renderer_cell.borrow_mut(),
@@ -226,13 +240,27 @@ pub(in crate::cli) async fn run_live_agent_turn(
                                 })?;
                             }
                         }
-                        LiveEditorAction::Interrupt | LiveEditorAction::Exit => break Ok(None),
+                        LiveEditorAction::Interrupt | LiveEditorAction::Exit => {
+                            if let Some(voice) = voice_cell.borrow_mut().as_mut() {
+                                voice.interrupt();
+                            }
+                            break Ok(None);
+                        }
                     }
                     if live.mode() != mode_before {
                         control.set_mode(live.mode());
                     }
                 },
-                result = &mut chat => break result.map(Some),
+                result = &mut chat => {
+                    if let Some(voice) = voice_cell.borrow_mut().as_mut() {
+                        if result.is_ok() {
+                            voice.finish_stream();
+                        } else {
+                            voice.interrupt();
+                        }
+                    }
+                    break result.map(Some);
+                }
             }
         }
     };

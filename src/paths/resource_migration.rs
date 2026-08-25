@@ -192,7 +192,12 @@ pub(crate) fn try_acquire_resource_daemon_guard(
     let Some(core) = try_acquire_runtime_lock(&runtime_dir.join("core.lock"))? else {
         return Ok(None);
     };
-    if std::os::unix::net::UnixStream::connect(runtime_dir.join("core.sock")).is_ok() {
+    #[cfg(unix)]
+    let sock_connected = std::os::unix::net::UnixStream::connect(runtime_dir.join("core.sock")).is_ok();
+    #[cfg(not(unix))]
+    let sock_connected = false;
+
+    if sock_connected {
         return Ok(None);
     }
     Ok(Some(ResourceDaemonGuard {
@@ -342,10 +347,14 @@ pub(crate) fn write_resource_journal(layout: &Layout, journal: &ResourceMigratio
         std::process::id(),
         rand::random::<u64>()
     ));
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .mode(0o600)
+    let mut options = OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
         .open(&temporary)
         .with_context(|| format!("creating {}", temporary.display()))?;
     serde_json::to_writer_pretty(&mut file, journal)?;

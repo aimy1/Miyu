@@ -183,6 +183,9 @@
                   </div>
                 </div>
                 <span class="character-count" id="characterCount" hidden>0 / 20,000</span>
+                <button class="icon-button voice-toggle-button" id="voiceToggleButton" type="button" title="开启/关闭语音播报" aria-label="语音播报">
+                  <span class="icon-slot" data-icon="volume-2" aria-hidden="true"><span class="icon-fallback">🔊</span></span>
+                </button>
                 <button class="icon-button artifact-toggle-button" id="artifactToggleButton" type="button" title="打开预览" aria-label="打开预览" hidden>
                   <span class="icon-slot" data-icon="panel-right" aria-hidden="true"><span class="icon-fallback">▥</span></span>
                 </button>
@@ -378,6 +381,58 @@
               <div class="settings-row">
                 <div class="lbl"><strong>展开工具详情</strong><small>默认展开工具签的参数与输出面板</small></div>
                 <button class="toggle" id="toolExpandToggle" type="button" role="switch" aria-checked="false" aria-label="展开工具详情"></button>
+              </div>
+            </div>
+            </section>
+            <section class="settings-section settings-panel" data-settings-panel="interface">
+            <h2>语音与播报</h2>
+            <div class="settings-card">
+              <div class="settings-row">
+                <div class="lbl"><strong>启用语音播报</strong><small>AI 回复时通过 Edge-TTS 实时朗读消息正文</small></div>
+                <button class="toggle" id="voiceEnabledToggle" type="button" role="switch" aria-checked="false" aria-label="启用语音播报"></button>
+              </div>
+              <div class="settings-row">
+                <div class="lbl"><strong>当前音色</strong><small>已配置的声音（含预置与自定义声音）</small></div>
+                <div class="voice-select-wrap">
+                  <select id="voiceSelect" class="config-input voice-select" aria-label="音色选择">
+                    <!-- JS 动态填充预置与自定义声音 -->
+                  </select>
+                  <button class="voice-btn voice-btn-secondary" id="voiceTestButton" type="button" title="试听当前选中的声音">试听当前</button>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="lbl"><strong>语速调节 (Rate)</strong><small id="voiceRateLabel">+0%</small></div>
+                <input type="range" id="voiceRateSlider" min="-50" max="100" step="5" value="0" style="width: 140px;">
+              </div>
+              <div class="settings-row">
+                <div class="lbl"><strong>音调调节 (Pitch)</strong><small id="voicePitchLabel">+0Hz</small></div>
+                <input type="range" id="voicePitchSlider" min="-50" max="50" step="5" value="0" style="width: 140px;">
+              </div>
+            </div>
+
+            <div class="voice-custom-card">
+              <header class="voice-custom-header">
+                <div>
+                  <h3>添加自定义声音</h3>
+                  <p>输入显示名称与标识符（如微软官方音色 zh-CN-YunyangNeural、zh-TW-YunJheNeural、ja-JP-AoiNeural 等）</p>
+                </div>
+              </header>
+              <div class="voice-add-form">
+                <div class="voice-field">
+                  <label class="voice-field-label" for="customVoiceNameInput">显示别名</label>
+                  <input type="text" id="customVoiceNameInput" placeholder="例如：云扬 (新闻主播)" class="config-input">
+                </div>
+                <div class="voice-field">
+                  <label class="voice-field-label" for="customVoiceIdInput">声音标识 (Voice ID)</label>
+                  <input type="text" id="customVoiceIdInput" placeholder="例如：zh-CN-YunyangNeural" class="config-input voice-id-input">
+                </div>
+                <button class="voice-btn voice-btn-primary" id="addCustomVoiceButton" type="button">添加声音</button>
+              </div>
+              <div class="voice-list-section">
+                <div class="voice-list-title">已保存的自定义声音</div>
+                <div class="voice-list-grid" id="customVoiceList">
+                  <!-- JS 动态渲染自定义条目 -->
+                </div>
               </div>
             </div>
             </section>

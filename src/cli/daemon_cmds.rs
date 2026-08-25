@@ -15,36 +15,55 @@ pub(in crate::cli) const RELOAD_RETRY_INTERVAL: Duration = Duration::from_secs(5
 pub(in crate::cli) const RELOAD_RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub(in crate::cli) async fn run_web(paths: &MiyuPaths, mut args: WebArgs) -> Result<()> {
-    if let Some(info) = ipc::daemon_info(paths).await {
-        if info.build_id == ipc::BUILD_ID {
-            if args.port_explicit || args.password.is_some() || args.password_file.is_some() {
-                bail!(
-                    "{}",
-                    t(
-                        "the running Miyu daemon already owns Web settings; restart it to change them",
-                        "当前 Miyu daemon 已接管 Web 设置；如需修改请先重启 daemon"
-                    )
-                );
-            }
-            for url in daemon_web_access_urls(&info) {
-                println!("Miyu WebUI: {url}");
-            }
-            return Ok(());
+    #[cfg(not(unix))]
+    {
+        if args.password.as_deref() == Some("") {
+            args.password = Some(rpassword::prompt_password(t(
+                "WebUI password: ",
+                "WebUI 密码：",
+            ))?);
         }
+        let port = args.port;
+        let bind = args.bind.unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
+        for url in ipc::web_access_urls_for(bind, port) {
+            println!("Miyu WebUI: {url}");
+        }
+        return crate::daemon::run(paths.clone(), args).await;
     }
 
-    if args.password.as_deref() == Some("") {
-        args.password = Some(rpassword::prompt_password(t(
-            "WebUI password: ",
-            "WebUI 密码：",
-        ))?);
+    #[cfg(unix)]
+    {
+        if let Some(info) = ipc::daemon_info(paths).await {
+            if info.build_id == ipc::BUILD_ID {
+                if args.port_explicit || args.password.is_some() || args.password_file.is_some() {
+                    bail!(
+                        "{}",
+                        t(
+                            "the running Miyu daemon already owns Web settings; restart it to change them",
+                            "当前 Miyu daemon 已接管 Web 设置；如需修改请先重启 daemon"
+                        )
+                    );
+                }
+                for url in daemon_web_access_urls(&info) {
+                    println!("Miyu WebUI: {url}");
+                }
+                return Ok(());
+            }
+        }
+
+        if args.password.as_deref() == Some("") {
+            args.password = Some(rpassword::prompt_password(t(
+                "WebUI password: ",
+                "WebUI 密码：",
+            ))?);
+        }
+        let launch = web_launch_config(paths, &args)?;
+        let info = ipc::ensure_daemon(paths, launch.as_ref()).await?;
+        for url in daemon_web_access_urls(&info) {
+            println!("Miyu WebUI: {url}");
+        }
+        Ok(())
     }
-    let launch = web_launch_config(paths, &args)?;
-    let info = ipc::ensure_daemon(paths, launch.as_ref()).await?;
-    for url in daemon_web_access_urls(&info) {
-        println!("Miyu WebUI: {url}");
-    }
-    Ok(())
 }
 
 pub(in crate::cli) fn web_launch_config(paths: &MiyuPaths, args: &WebArgs) -> Result<Option<ipc::DaemonLaunchConfig>> {
@@ -225,6 +244,7 @@ async fn sweep_stray_daemons(paths: &MiyuPaths) -> usize {
         if home.as_deref() != Some(my_root.as_path()) {
             continue;
         }
+        #[cfg(unix)]
         unsafe {
             libc::kill(pid, libc::SIGTERM);
         }
@@ -234,6 +254,7 @@ async fn sweep_stray_daemons(paths: &MiyuPaths) -> usize {
         return 0;
     }
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    #[cfg(unix)]
     for pid in &strays {
         if std::fs::metadata(format!("/proc/{pid}")).is_ok() {
             unsafe {

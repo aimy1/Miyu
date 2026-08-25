@@ -7,33 +7,36 @@
 use crate::cli::*;
 
 pub(in crate::cli) fn drain_stdin() {
-    use std::os::fd::AsRawFd;
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
 
-    let stdin = io::stdin();
-    if !stdin.is_terminal() {
-        return;
-    }
-    let fd = stdin.as_raw_fd();
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-    if flags < 0 {
-        return;
-    }
-    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return;
-    }
-
-    let mut handle = stdin.lock();
-    let mut buffer = [0_u8; 4096];
-    loop {
-        match handle.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(_) => continue,
-            Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-            Err(_) => break,
+        let stdin = io::stdin();
+        if !stdin.is_terminal() {
+            return;
         }
-    }
+        let fd = stdin.as_raw_fd();
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 {
+            return;
+        }
+        if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            return;
+        }
 
-    let _ = unsafe { libc::fcntl(fd, libc::F_SETFL, flags) };
+        let mut handle = stdin.lock();
+        let mut buffer = [0_u8; 4096];
+        loop {
+            match handle.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(_) => continue,
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
+                Err(_) => break,
+            }
+        }
+
+        let _ = unsafe { libc::fcntl(fd, libc::F_SETFL, flags) };
+    }
 }
 
 pub(in crate::cli) const STDIN_MAX_CHARS: usize = 50_000;
@@ -49,43 +52,53 @@ pub(in crate::cli) async fn append_stdin_if_piped(message: String) -> String {
     // would make the tokio runtime hang forever on shutdown (the process
     // then never exits when stdin is a never-closing pipe).
     let read_result = tokio::task::spawn_blocking(|| -> std::io::Result<String> {
-        use std::os::fd::AsRawFd;
-        let stdin = std::io::stdin();
-        let fd = stdin.as_raw_fd();
-        let mut buf: Vec<u8> = Vec::new();
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_secs(STDIN_TIMEOUT_SECS);
-        loop {
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-            if remaining.is_zero() || buf.len() >= STDIN_MAX_CHARS {
-                break;
-            }
-            let mut pollfd = libc::pollfd {
-                fd,
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            let timeout_ms = remaining.as_millis().min(i32::MAX as u128) as i32;
-            let ready = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
-            if ready <= 0 {
-                break;
-            }
-            let mut chunk = [0u8; 8192];
-            let count = unsafe { libc::read(fd, chunk.as_mut_ptr().cast(), chunk.len()) };
-            if count < 0 {
-                let error = std::io::Error::last_os_error();
-                if error.kind() == std::io::ErrorKind::Interrupted {
-                    continue;
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            let stdin = std::io::stdin();
+            let fd = stdin.as_raw_fd();
+            let mut buf: Vec<u8> = Vec::new();
+            let deadline =
+                std::time::Instant::now() + std::time::Duration::from_secs(STDIN_TIMEOUT_SECS);
+            loop {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() || buf.len() >= STDIN_MAX_CHARS {
+                    break;
                 }
-                return Err(error);
+                let mut pollfd = libc::pollfd {
+                    fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                let timeout_ms = remaining.as_millis().min(i32::MAX as u128) as i32;
+                let ready = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
+                if ready <= 0 {
+                    break;
+                }
+                let mut chunk = [0u8; 8192];
+                let count = unsafe { libc::read(fd, chunk.as_mut_ptr().cast(), chunk.len()) };
+                if count < 0 {
+                    let error = std::io::Error::last_os_error();
+                    if error.kind() == std::io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    return Err(error);
+                }
+                if count == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..count as usize]);
             }
-            if count == 0 {
-                break;
-            }
-            buf.extend_from_slice(&chunk[..count as usize]);
+            buf.truncate(STDIN_MAX_CHARS);
+            Ok(String::from_utf8_lossy(&buf).into_owned())
         }
-        buf.truncate(STDIN_MAX_CHARS);
-        Ok(String::from_utf8_lossy(&buf).into_owned())
+        #[cfg(not(unix))]
+        {
+            use std::io::Read;
+            let mut buf = String::new();
+            std::io::stdin().take(STDIN_MAX_CHARS as u64).read_to_string(&mut buf)?;
+            Ok(buf)
+        }
     })
     .await;
 

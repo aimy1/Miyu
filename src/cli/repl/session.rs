@@ -147,17 +147,24 @@ pub(in crate::cli) fn is_remote_turn_cancelled(error: &anyhow::Error) -> bool {
 /// 完成后 daemon 凭这份指纹校验「shell 还活着、仍在这个 tty、空闲在提示符」,
 /// 才把跟进回复写回终端。检测不到(纯管道/重定向/cron)就不带。
 pub(in crate::cli) fn detect_origin_tty() -> Option<crate::ipc::OriginTty> {
-    let fd = [2, 1, 0]
-        .into_iter()
-        .find(|&fd| unsafe { libc::isatty(fd) } == 1)?;
-    let path = std::fs::read_link(format!("/proc/self/fd/{fd}")).ok()?;
-    if !path.starts_with("/dev/") {
-        return None;
+    #[cfg(unix)]
+    {
+        let fd = [2, 1, 0]
+            .into_iter()
+            .find(|&fd| unsafe { libc::isatty(fd) } == 1)?;
+        let path = std::fs::read_link(format!("/proc/self/fd/{fd}")).ok()?;
+        if !path.starts_with("/dev/") {
+            return None;
+        }
+        Some(crate::ipc::OriginTty {
+            path,
+            shell_pid: std::os::unix::process::parent_id(),
+        })
     }
-    Some(crate::ipc::OriginTty {
-        path,
-        shell_pid: std::os::unix::process::parent_id(),
-    })
+    #[cfg(not(unix))]
+    {
+        None
+    }
 }
 
 pub(in crate::cli) async fn send_ipc_command(paths: &MiyuPaths, command: IpcCommand) -> Result<()> {
