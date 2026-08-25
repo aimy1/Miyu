@@ -3826,6 +3826,7 @@
 
   async function createSession(mode) {
     if (state.blocked || state.sessionBusy || state.adminBusy || state.submitting) return;
+    stopVoice();
     setSessionBusy(true);
     try {
       const response = await apiRequest("/api/sessions", {
@@ -3860,6 +3861,9 @@
 
   async function loadSessionView(sessionId, { quiet = false, userInitiated = false } = {}) {
     if (!sessionId || (quiet && sessionId !== state.viewSessionId) || (state.viewLoading && !userInitiated)) return;
+    if (state.viewSessionId && state.viewSessionId !== sessionId) {
+      stopVoice();
+    }
     // 命令回执是会话内的临时记录，换会话就清掉——否则会串到别的会话里。
     // 回执按会话记账（commands.js），切走再切回来仍在原位，这里不再清空。
     if (state.unreadSessions.delete(sessionId)) renderSessionList();
@@ -4096,6 +4100,7 @@
   async function deleteSession(sessionId) {
     const session = findSession(sessionId);
     if (!window.confirm(`删除会话「${sessionDisplayName(session)}」？此操作无法撤销。`)) return;
+    stopVoice();
     if (state.sessionBusy) return;
     setSessionBusy(true);
     try {
@@ -4692,6 +4697,7 @@
 
   async function submitRedo(candidate, editedContent = null) {
     if (!revisionEligible(candidate)) return;
+    stopVoice();
     const sessionId = state.viewSessionId;
     if (!sessionId) return;
     state.revisionSubmitting = true;
@@ -5738,6 +5744,7 @@
     elements.popConfirmButton.onclick = async () => {
       const turnIds = boxes.filter((box) => box.checked).map((box) => box.value);
       if (!turnIds.length) return;
+      stopVoice();
       elements.popConfirmButton.disabled = true;
       try {
         const response = await apiRequest("/api/conversation/pop", {
@@ -9827,6 +9834,7 @@
   }
 
   function requestNewConversation() {
+    stopVoice();
     if (multiSessionEnabled()) {
       openModeChooser();
       return;
@@ -9842,6 +9850,7 @@
 
   function requestClearConversation() {
     if (conversationRunning() || state.adminBusy || state.submitting) return;
+    stopVoice();
     if (!hasHistory()) {
       showToast("当前会话没有可清除的记录");
       return;
@@ -9851,6 +9860,7 @@
 
   async function resetConversation() {
     if (conversationRunning() || state.adminBusy || state.submitting) return;
+    stopVoice();
     state.adminBusy = true;
     elements.resetConfirmButton.disabled = true;
     elements.resetCancelButton.disabled = true;
@@ -10905,15 +10915,52 @@
   function cleanTextForVoice(raw) {
     if (!raw) return "";
     let text = String(raw);
+
+    // 1. 去除代码块及内容、HTML 标签、图片等无声内容
     text = text.replace(/```[\s\S]*?```/g, "");
     text = text.replace(/`([^`]+)`/g, "$1");
-    text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
     text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
+    text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
     text = text.replace(/<[^>]+>/g, "");
+
+    // 2. 去除数学公式块与行内公式定界符
+    text = text.replace(/\$\$[\s\S]*?\$\$/g, "");
+    text = text.replace(/\$([^$]+)\$/g, "$1");
+
+    // 3. 处理标题、引用、分割线
     text = text.replace(/^#+\s+/gm, "");
     text = text.replace(/^>\s+/gm, "");
-    text = text.replace(/^---+$/gm, "");
-    text = text.replace(/\n\s*\n/g, "，").replace(/\n/g, "，");
+    text = text.replace(/^[-*_]{3,}$/gm, "");
+
+    // 4. 处理无序列表前缀（避免读出 "减号/星号/加号"）
+    text = text.replace(/^\s*[-*+]\s+/gm, "");
+
+    // 5. 剥离加粗与斜体标记 (***bold italic***, **bold**, *italic*, ___bold italic___, __bold__, _italic_)
+    text = text.replace(/\*{3}(.*?)\*{3}/g, "$1");
+    text = text.replace(/\*{2}(.*?)\*{2}/g, "$1");
+    text = text.replace(/\*(.*?)\*/g, "$1");
+    text = text.replace(/_{3}(.*?)_{3}/g, "$1");
+    text = text.replace(/_{2}(.*?)_{2}/g, "$1");
+    text = text.replace(/_([^_]+)_/g, "$1");
+
+    // 6. 剥离删除线 (~~strikethrough~~)
+    text = text.replace(/~~(.*?)~~/g, "$1");
+
+    // 7. 过滤表格边框符号 '|'
+    text = text.replace(/\|/g, " ");
+
+    // 8. 彻底清除所有残留或单独出现的星号、波浪号与转义字符
+    text = text.replace(/\\\*/g, "");
+    text = text.replace(/\*/g, "");
+    text = text.replace(/~/g, "");
+    text = text.replace(/\\([\\`*{}[\]()#+\-.!_>])/g, "$1");
+
+    // 9. 换行与空白规整
+    text = text.replace(/\r?\n\s*\r?\n/g, "，").replace(/\r?\n/g, "，");
+    text = text.replace(/\s+/g, " ");
+    text = text.replace(/([，。！？；])\1+/g, "$1");
+    text = text.replace(/^[，、；：\s]+|[，、；：\s]+$/g, "");
+
     return text.trim();
   }
 
