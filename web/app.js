@@ -10502,7 +10502,11 @@
       event.preventDefault();
       addComposerFiles(files);
     });
+    elements.composerInput.addEventListener("input", () => {
+      stopVoice();
+    });
     elements.composerInput.addEventListener("paste", (event) => {
+      stopVoice();
       const files = collectTransferFiles(event.clipboardData);
       if (!files.length) {
         const hasUriList = Array.from(event.clipboardData?.items || []).some((item) => item.type === "text/uri-list");
@@ -10514,11 +10518,15 @@
     });
     elements.composerInput.addEventListener("compositionstart", () => {
       state.composing = true;
+      stopVoice();
     });
     elements.composerInput.addEventListener("compositionend", () => {
       state.composing = false;
     });
     elements.composerInput.addEventListener("keydown", (event) => {
+      if (!event.ctrlKey && !event.altKey && !event.metaKey && event.key && event.key.length === 1) {
+        stopVoice();
+      }
       // 菜单开着时它先吃掉上下键与 Tab/Enter：补全后再按一次回车才执行，
       // 与 REPL 一致，用户有机会反悔。
       if (window.MiyuCommands?.handleKey(event)) {
@@ -10527,11 +10535,13 @@
       }
       if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !state.composing && event.keyCode !== 229) {
         event.preventDefault();
+        stopVoice();
         if (!elements.sendButton.disabled) elements.composerForm.requestSubmit();
       }
     });
     elements.composerForm.addEventListener("submit", (event) => {
       event.preventDefault();
+      stopVoice();
       submitTurn();
     });
     elements.loginForm.addEventListener("submit", (event) => {
@@ -10589,6 +10599,8 @@
 
   let webAudioCtx = null;
   let activeAudioSource = null;
+  let voiceQueueAbortController = null;
+  let voicePlaybackToken = 0;
 
   function getAudioContext() {
     if (!webAudioCtx) {
@@ -10604,6 +10616,11 @@
   }
 
   function stopVoice() {
+    voicePlaybackToken++;
+    if (voiceQueueAbortController) {
+      try { voiceQueueAbortController.abort(); } catch (_) {}
+      voiceQueueAbortController = null;
+    }
     if (activeAudioSource) {
       try { activeAudioSource.stop(); } catch (_) {}
       activeAudioSource = null;
@@ -10623,17 +10640,93 @@
     elements.voiceToggleButton?.classList.remove("is-speaking");
   }
 
+  // 智能分句：将长文本按自然句号、感叹号、问号、分号、换行快速切分，实现首句毫秒级起播
+  function splitTextIntoSentences(text) {
+    if (!text) return [];
+    const clean = cleanTextForVoice(text);
+    if (!clean) return [];
+
+    const parts = clean.split(/([。！？!?\n;；]+)/);
+    const sentences = [];
+    let current = "";
+
+    for (let i = 0; i < parts.length; i += 2) {
+      const seg = parts[i] || "";
+      const punc = parts[i + 1] || "";
+      const combined = (seg + punc).trim();
+      if (!combined) continue;
+
+      if (current.length + combined.length < 12 && i + 2 < parts.length) {
+        current += (current ? " " : "") + combined;
+      } else {
+        sentences.push((current ? current + " " : "") + combined);
+        current = "";
+      }
+    }
+    if (current.trim()) {
+      sentences.push(current.trim());
+    }
+    return sentences.filter((s) => s.trim().length > 0);
+  }
+
+  async function fetchSpeechAudioBuffer(text, options, signal) {
+    const payload = {
+      text,
+      voice: options.voice || state.voiceConfig.voice || "zh-CN-XiaoxiaoNeural",
+      pitch: options.pitch || state.voiceConfig.pitch || "+0Hz",
+      rate: options.rate || state.voiceConfig.rate || "+0%",
+      volume: options.volume || state.voiceConfig.volume || "+0%"
+    };
+
+    const response = await fetch("/api/voice/synthesize", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "audio/mpeg"
+      },
+      body: JSON.stringify(payload),
+      signal
+    });
+
+    if (!response.ok) {
+      let errDesc = `HTTP ${response.status}`;
+      try {
+        const errJson = await response.json();
+        if (errJson?.error?.message) errDesc = errJson.error.message;
+      } catch (_) {}
+      throw new Error(errDesc);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+      throw new Error("音频数据为空");
+    }
+
+    const ctx = getAudioContext();
+    if (ctx) {
+      return await ctx.decodeAudioData(arrayBuffer.slice(0));
+    }
+    return arrayBuffer;
+  }
+
   async function playVoiceText(text, customOptions = {}, onStart = null, onEnd = null) {
     stopVoice();
-    const clean = cleanTextForVoice(text);
-    if (!clean) return;
+    const sentences = splitTextIntoSentences(text);
+    if (!sentences.length) return;
 
-    const payload = {
-      text: clean,
-      voice: customOptions.voice || state.voiceConfig.voice || "zh-CN-XiaoxiaoNeural",
-      pitch: customOptions.pitch || state.voiceConfig.pitch || "+0Hz",
-      rate: customOptions.rate || state.voiceConfig.rate || "+0%",
-      volume: customOptions.volume || state.voiceConfig.volume || "+0%"
+    const currentToken = ++voicePlaybackToken;
+    const controller = new AbortController();
+    voiceQueueAbortController = controller;
+
+    const cleanup = () => {
+      activeAudioSource = null;
+      if (state.currentAudio) state.currentAudio = null;
+      elements.voiceToggleButton?.classList.remove("is-speaking");
+      document.querySelectorAll(".message-voice-button.is-playing").forEach((btn) => {
+        btn.classList.remove("is-playing");
+        btn.replaceChildren(makeIconSlot("volume-2"));
+      });
+      if (typeof onEnd === "function") onEnd();
     };
 
     try {
@@ -10642,74 +10735,81 @@
       }
       if (typeof onStart === "function") onStart();
 
-      const response = await fetch("/api/voice/synthesize", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "audio/mpeg"
-        },
-        body: JSON.stringify(payload)
-      });
-      if (!response.ok) {
-        let errDesc = `HTTP ${response.status}`;
-        try {
-          const errJson = await response.json();
-          if (errJson?.error?.message) errDesc = errJson.error.message;
-        } catch (_) {}
-        throw new Error(errDesc);
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      if (!arrayBuffer || arrayBuffer.byteLength === 0) {
-        throw new Error("音频数据为空");
-      }
-
-      const cleanup = () => {
-        activeAudioSource = null;
-        if (state.currentAudio) state.currentAudio = null;
-        elements.voiceToggleButton?.classList.remove("is-speaking");
-        document.querySelectorAll(".message-voice-button.is-playing").forEach((btn) => {
-          btn.classList.remove("is-playing");
-          btn.replaceChildren(makeIconSlot("volume-2"));
-        });
-        if (typeof onEnd === "function") onEnd();
+      const options = {
+        voice: customOptions.voice || state.voiceConfig.voice || "zh-CN-XiaoxiaoNeural",
+        pitch: customOptions.pitch || state.voiceConfig.pitch || "+0Hz",
+        rate: customOptions.rate || state.voiceConfig.rate || "+0%",
+        volume: customOptions.volume || state.voiceConfig.volume || "+0%"
       };
 
-      const ctx = getAudioContext();
-      if (ctx) {
-        // Use Web Audio API for robust, zero-latency PCM playback
-        const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
-        const sourceNode = ctx.createBufferSource();
-        sourceNode.buffer = audioBuffer;
-        sourceNode.connect(ctx.destination);
-        activeAudioSource = sourceNode;
-        sourceNode.onended = () => {
-          if (activeAudioSource === sourceNode) cleanup();
-        };
-        sourceNode.start(0);
-      } else {
-        const blob = new Blob([arrayBuffer], { type: "audio/mpeg" });
-        const audioUrl = URL.createObjectURL(blob);
-        const audio = new Audio(audioUrl);
-        state.currentAudio = audio;
-        audio.onended = () => {
-          cleanup();
-          setTimeout(() => URL.revokeObjectURL(audioUrl), 5000);
-        };
-        audio.onerror = () => {
-          cleanup();
-          setTimeout(() => URL.revokeObjectURL(audioUrl), 5000);
-        };
-        await audio.play();
+      // 毫秒级流水线机制：首句立即请求，首句播放期间并行预加载下一句
+      let nextAudioPromise = fetchSpeechAudioBuffer(sentences[0], options, controller.signal);
+
+      for (let i = 0; i < sentences.length; i++) {
+        if (currentToken !== voicePlaybackToken || controller.signal.aborted) break;
+
+        const audioBuffer = await nextAudioPromise;
+        if (currentToken !== voicePlaybackToken || controller.signal.aborted) break;
+
+        // 立即触发下一句的后台异步预取
+        if (i + 1 < sentences.length) {
+          nextAudioPromise = fetchSpeechAudioBuffer(sentences[i + 1], options, controller.signal).catch((err) => {
+            if (err.name !== "AbortError") console.warn("下一句语音预取失败:", err);
+            return null;
+          });
+        }
+
+        // 播放当前句音频
+        const ctx = getAudioContext();
+        if (ctx && audioBuffer instanceof AudioBuffer) {
+          await new Promise((resolve) => {
+            if (currentToken !== voicePlaybackToken || controller.signal.aborted) {
+              resolve();
+              return;
+            }
+            const sourceNode = ctx.createBufferSource();
+            sourceNode.buffer = audioBuffer;
+            sourceNode.connect(ctx.destination);
+            activeAudioSource = sourceNode;
+            sourceNode.onended = () => {
+              if (activeAudioSource === sourceNode) activeAudioSource = null;
+              resolve();
+            };
+            sourceNode.start(0);
+          });
+        } else if (audioBuffer instanceof ArrayBuffer) {
+          const blob = new Blob([audioBuffer], { type: "audio/mpeg" });
+          const audioUrl = URL.createObjectURL(blob);
+          const audio = new Audio(audioUrl);
+          state.currentAudio = audio;
+          await new Promise((resolve) => {
+            audio.onended = () => {
+              state.currentAudio = null;
+              URL.revokeObjectURL(audioUrl);
+              resolve();
+            };
+            audio.onerror = () => {
+              state.currentAudio = null;
+              URL.revokeObjectURL(audioUrl);
+              resolve();
+            };
+            audio.play().catch(resolve);
+          });
+        }
       }
     } catch (err) {
-      console.warn("语音播放失败:", err);
-      if (err.name === "NotAllowedError") {
-        showToast("点击消息旁的喇叭即可播放语音", "warning");
-      } else {
-        showToast("语音播放失败: " + (err.message || "网络异常"), "error");
+      if (err.name !== "AbortError") {
+        console.warn("语音播放失败:", err);
+        if (err.name === "NotAllowedError") {
+          showToast("点击消息旁的喇叭即可播放语音", "warning");
+        } else {
+          showToast("语音播放失败: " + (err.message || "网络异常"), "error");
+        }
       }
-      stopVoice();
-      if (typeof onEnd === "function") onEnd();
+    } finally {
+      if (currentToken === voicePlaybackToken) {
+        cleanup();
+      }
     }
   }
 
