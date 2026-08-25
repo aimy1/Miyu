@@ -288,6 +288,10 @@
     generalConfigForm: document.getElementById("generalConfigForm"),
     providerEditor: document.getElementById("providerEditor"),
     addProviderButton: document.getElementById("addProviderButton"),
+    providerTemplateShelf: document.getElementById("providerTemplateShelf"),
+    toggleProviderTemplateButton: document.getElementById("toggleProviderTemplateButton"),
+    providerTemplateGrid: document.getElementById("providerTemplateGrid"),
+    activeProviderNameTag: document.getElementById("activeProviderNameTag"),
     modelPoolEditor: document.getElementById("modelPoolEditor"),
     pluginEditor: document.getElementById("pluginEditor"),
     promptEditor: document.getElementById("promptEditor"),
@@ -1459,29 +1463,283 @@
     state.configInferredImageModels = state.configInferredImageModels.filter((item) => item?.provider_id !== providerId);
   }
 
+  const PRESET_PROVIDER_TEMPLATES = [
+    {
+      id: "antigravity",
+      display_name: "Antigravity (Gemini 3.7 Flash)",
+      base_url: "http://127.0.0.1:8045/v1",
+      protocol: "auto",
+      default_model: "gemini-3.7-flash",
+      models: ["gemini-3.7-flash", "gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-2.5-flash", "gemini-2.5-pro", "claude-sonnet-4-6-thinking"],
+      hint: "本地 Antigravity 代理，支持 Gemini 3.7 Flash 及 Claude"
+    },
+    {
+      id: "gemini",
+      display_name: "Google Gemini (官方直连)",
+      base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+      protocol: "auto",
+      default_model: "gemini-2.5-flash",
+      models: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
+      hint: "Google AI Studio 官方端点，免费高速"
+    },
+    {
+      id: "deepseek",
+      display_name: "DeepSeek (官方)",
+      base_url: "https://api.deepseek.com",
+      protocol: "auto",
+      default_model: "deepseek-chat",
+      models: ["deepseek-chat", "deepseek-reasoner"],
+      hint: "DeepSeek V3 / R1 官方高速接口"
+    },
+    {
+      id: "openai",
+      display_name: "OpenAI (ChatGPT)",
+      base_url: "https://api.openai.com/v1",
+      protocol: "auto",
+      default_model: "gpt-4o",
+      models: ["gpt-4o", "gpt-4o-mini", "o3-mini", "o1"],
+      hint: "OpenAI 官方 ChatGPT 系列"
+    },
+    {
+      id: "anthropic",
+      display_name: "Anthropic Claude (官方)",
+      base_url: "https://api.anthropic.com/v1",
+      protocol: "anthropic",
+      default_model: "claude-3-7-sonnet-20250219",
+      models: ["claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"],
+      hint: "Anthropic 原生协议端点"
+    },
+    {
+      id: "siliconflow",
+      display_name: "SiliconFlow (硅基流动)",
+      base_url: "https://api.siliconflow.cn/v1",
+      protocol: "auto",
+      default_model: "deepseek-ai/DeepSeek-V3",
+      models: ["deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1", "Qwen/Qwen2.5-72B-Instruct"],
+      hint: "国内主流聚合算力平台"
+    },
+    {
+      id: "dashscope",
+      display_name: "Aliyun 百炼 (通义千问)",
+      base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      protocol: "auto",
+      default_model: "qwen-plus",
+      models: ["qwen-max", "qwen-plus", "qwen-turbo"],
+      hint: "阿里 DashScope 兼容接口"
+    },
+    {
+      id: "ollama",
+      display_name: "Ollama (本地)",
+      base_url: "http://localhost:11434/v1",
+      protocol: "auto",
+      default_model: "qwen2.5:7b",
+      models: ["qwen2.5:7b", "llama3.1:8b", "deepseek-r1:8b"],
+      hint: "本地私有化 Ollama 实例"
+    }
+  ];
+
+  function getProviderEffectiveApiKey(provider, index) {
+    const secretKey = `providers.${index}.api_key`;
+    if (state.secretChanges && state.secretChanges[secretKey]) {
+      const mutation = state.secretChanges[secretKey];
+      if (mutation.type === "set" || mutation.type === "replace") return mutation.value;
+    }
+    return provider.api_key || "";
+  }
+
+  async function testProviderConnection(provider, index, statusElem, buttonElem) {
+    const baseUrl = String(provider.base_url || "").trim().replace(/\/+$/, "");
+    if (!baseUrl) {
+      statusElem.innerHTML = `<span class="test-badge test-error">⚠️ 请先填写 Base URL</span>`;
+      return;
+    }
+
+    const apiKey = getProviderEffectiveApiKey(provider, index);
+    buttonElem.disabled = true;
+    statusElem.innerHTML = `<span class="test-badge test-loading">⏳ 正在测试与接口的连接...</span>`;
+
+    const startTime = performance.now();
+    try {
+      const modelsUrl = baseUrl.endsWith("/v1") ? `${baseUrl}/models` : `${baseUrl}/v1/models`;
+      const headers = { "Accept": "application/json" };
+      if (apiKey) {
+        if (provider.protocol === "anthropic") {
+          headers["x-api-key"] = apiKey;
+          headers["anthropic-version"] = "2023-06-01";
+        } else {
+          headers["Authorization"] = `Bearer ${apiKey}`;
+        }
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+
+      let res = null;
+      let errText = "";
+      try {
+        res = await fetch(modelsUrl, { headers, signal: controller.signal });
+      } catch (e) {
+        errText = e.message;
+      }
+      clearTimeout(timer);
+      const latency = Math.round(performance.now() - startTime);
+
+      if (res && res.ok) {
+        let modelCount = 0;
+        let modelNames = [];
+        try {
+          const json = await res.json();
+          if (Array.isArray(json?.data)) {
+            modelCount = json.data.length;
+            modelNames = json.data.slice(0, 3).map((m) => m.id || m.name).filter(Boolean);
+          }
+        } catch (_) {}
+        statusElem.innerHTML = `<span class="test-badge test-success">🟢 连通正常！响应延迟 ${latency}ms${modelCount > 0 ? ` · 发现 ${modelCount} 个可用模型 (如 ${modelNames.join(", ")})` : ""}</span>`;
+        return;
+      }
+
+      if (res && (res.status === 404 || res.status === 405)) {
+        statusElem.innerHTML = `<span class="test-badge test-success">🟢 服务端点可达 (HTTP ${res.status}, 延时 ${latency}ms)</span>`;
+        return;
+      }
+
+      if (res && res.status === 401) {
+        statusElem.innerHTML = `<span class="test-badge test-error">🔴 鉴权失败 (HTTP 401: 密钥无效或缺失，请检查 API Key)</span>`;
+        return;
+      }
+
+      if (res) {
+        statusElem.innerHTML = `<span class="test-badge test-error">🔴 接口响应 HTTP ${res.status} (${res.statusText || "异常"})</span>`;
+      } else {
+        statusElem.innerHTML = `<span class="test-badge test-error">🔴 无法连接接口: ${errText || "网络超时或拒绝连接"}</span>`;
+      }
+    } catch (err) {
+      statusElem.innerHTML = `<span class="test-badge test-error">🔴 连接异常: ${err.message || "请求失败"}</span>`;
+    } finally {
+      buttonElem.disabled = false;
+    }
+  }
+
+  function renderProviderTemplates() {
+    if (!elements.providerTemplateGrid) return;
+    elements.providerTemplateGrid.replaceChildren();
+    PRESET_PROVIDER_TEMPLATES.forEach((template) => {
+      const card = document.createElement("div");
+      card.className = "template-card";
+      card.innerHTML = `<strong>${template.display_name}</strong><small>${template.hint}</small>`;
+      card.addEventListener("click", () => {
+        if (!state.configDraft) return;
+        state.configDraft.providers = Array.isArray(state.configDraft.providers) ? state.configDraft.providers : [];
+        
+        let uniqueId = template.id;
+        let counter = 1;
+        while (state.configDraft.providers.some((p) => p.id === uniqueId)) {
+          uniqueId = `${template.id}-${++counter}`;
+        }
+
+        const newProvider = {
+          id: uniqueId,
+          display_name: template.display_name,
+          base_url: template.base_url,
+          protocol: template.protocol,
+          default_model: template.default_model,
+          models: [...template.models]
+        };
+
+        state.configDraft.providers.push(newProvider);
+        state.providerSecretStates.push(false);
+        refreshProviderSecretStates();
+        markConfigDirty();
+        renderConfigEditors();
+        if (elements.providerTemplateShelf) elements.providerTemplateShelf.hidden = true;
+        showToast(`已添加供应商模板「${template.display_name}」`, "success");
+
+        const cards = elements.providerEditor.querySelectorAll(".provider-card");
+        const lastCard = cards[cards.length - 1];
+        if (lastCard) {
+          lastCard.open = true;
+          lastCard.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+      });
+      elements.providerTemplateGrid.appendChild(card);
+    });
+  }
+
   function renderProviders() {
     elements.providerEditor.replaceChildren();
     const providers = Array.isArray(state.configDraft?.providers) ? state.configDraft.providers : [];
+    const activeId = state.configDraft?.active_provider || "";
+
+    if (elements.activeProviderNameTag) {
+      const activeProvider = providers.find((p) => p.id === activeId);
+      elements.activeProviderNameTag.textContent = activeProvider
+        ? `${activeProvider.display_name || activeProvider.id} (${activeProvider.default_model || "未设默认模型"})`
+        : activeId ? `${activeId} (未配置)` : "尚未指定";
+    }
+
     providers.forEach((provider, index) => {
       let referencedProviderId = String(provider.id || "");
+      const isActive = (provider.id === activeId || (!activeId && index === 0));
       const card = document.createElement("details");
-      card.className = "provider-card";
-      card.open = index === 0;
+      card.className = "provider-card" + (isActive ? " is-active" : "");
+      card.open = isActive || index === 0;
+
       const summary = document.createElement("summary");
+      
+      const leftSpan = document.createElement("div");
+      leftSpan.className = "provider-summary-left";
       const copy = document.createElement("span");
       const name = document.createElement("strong");
       name.textContent = provider.display_name || provider.id || `供应商 ${index + 1}`;
       const id = document.createElement("small");
       id.textContent = provider.id || "尚未命名";
       copy.append(name, id);
+      leftSpan.appendChild(copy);
+
+      const headerActions = document.createElement("div");
+      headerActions.className = "provider-header-actions";
+
+      // 设为主用 / 当前主用 徽章与按钮
+      if (isActive) {
+        const activeBadge = document.createElement("span");
+        activeBadge.className = "provider-status-badge active";
+        activeBadge.textContent = "🟢 当前主用";
+        activeBadge.title = "当前系统全局生效的主用供应商";
+        headerActions.appendChild(activeBadge);
+      } else {
+        const setActiveBtn = document.createElement("button");
+        setActiveBtn.className = "provider-status-badge inactive";
+        setActiveBtn.type = "button";
+        setActiveBtn.textContent = "设为主用";
+        setActiveBtn.title = "点击将此供应商设为全局主用";
+        setActiveBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          state.configDraft.active_provider = provider.id;
+          markConfigDirty();
+          renderConfigEditors();
+          showToast(`已将「${provider.display_name || provider.id}」设为主用供应商（保存后生效）`, "success");
+        });
+        headerActions.appendChild(setActiveBtn);
+      }
+
+      // 测试连接按钮
+      const testBtn = document.createElement("button");
+      testBtn.className = "test-btn";
+      testBtn.type = "button";
+      testBtn.innerHTML = `<span>⚡</span> 测试连接`;
+      testBtn.title = "测试与该供应商接口的连通性与 API Key 有效性";
+      headerActions.appendChild(testBtn);
+
+      // 删除按钮
       const remove = actionButton("", "icon-button danger-text");
-      remove.title = "删除";
+      remove.title = "删除供应商";
       remove.setAttribute("aria-label", "删除");
       remove.appendChild(makeIconSlot("trash-2"));
       remove.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        if (!window.confirm(`删除供应商“${provider.display_name || provider.id || index + 1}”？`)) return;
+        if (!window.confirm(`确认删除供应商「${provider.display_name || provider.id || index + 1}」？`)) return;
         state.configDraft.providers.splice(index, 1);
         state.providerSecretStates.splice(index, 1);
         refreshProviderSecretStates();
@@ -1494,17 +1752,33 @@
         markConfigDirty();
         renderConfigEditors();
       });
-      summary.append(copy, remove);
+      headerActions.appendChild(remove);
+
+      summary.append(leftSpan, headerActions);
+
       const body = document.createElement("div");
       body.className = "provider-card-body";
+
+      // 实时连通性测试结果展示容器
+      const testResultBox = document.createElement("div");
+      testResultBox.className = "provider-test-container";
+      testBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        testProviderConnection(provider, index, testResultBox, testBtn);
+      });
+
       const fields = [
-        ["配置 ID", "id"], ["显示名称", "display_name"], ["Base URL", "base_url"],
-        ["默认模型", "default_model"]
+        ["配置 ID (ID)", "id", "供应商唯一标识，如 antigravity, deepseek"],
+        ["显示名称", "display_name", "在界面中展示的友好名称"],
+        ["Base URL", "base_url", "API 请求地址，如 http://127.0.0.1:8045/v1 或 https://api.deepseek.com"],
+        ["默认模型", "default_model", "对话时默认使用的模型名，如 gemini-3.7-flash"]
       ];
-      for (const [label, key] of fields) {
+      for (const [label, key, tip] of fields) {
         const input = document.createElement("input");
         input.className = "config-input";
         input.value = String(provider[key] || "");
+        input.placeholder = tip || "";
         input.addEventListener("input", () => {
           const previousId = key === "id" ? String(provider.id || "") : "";
           provider[key] = input.value;
@@ -1538,21 +1812,63 @@
             updateAdvancedConfigEditor();
           });
         }
-        body.appendChild(configField(label, input));
+        body.appendChild(configField(label, input, tip));
       }
+
+      // API Key 密钥输入框
+      const secretKey = `providers.${index}.api_key`;
+      body.appendChild(secretEditor("API Key", secretKey));
+
+      // 可用模型池输入框
+      const modelsInput = document.createElement("textarea");
+      modelsInput.className = "config-input";
+      modelsInput.rows = 3;
+      modelsInput.value = (provider.models || []).join("\n");
+      modelsInput.placeholder = "每行填写一个模型名，如 gemini-3.7-flash";
+      modelsInput.addEventListener("input", () => {
+        clearConfigFieldError(modelsInput);
+        provider.models = modelsInput.value.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean);
+        if (provider.default_model && !provider.models.includes(provider.default_model)) {
+          provider.models.push(provider.default_model);
+        }
+        markConfigDirty();
+        updateAdvancedConfigEditor();
+        renderModelPools();
+      });
+      modelsInput.addEventListener("change", () => {
+        if (state.invalidConfigFields.has(modelsInput)) return;
+        pruneModelReferences();
+        renderModelPools();
+        updateAdvancedConfigEditor();
+      });
+      body.appendChild(configField("可用模型列表", modelsInput, "支持的模型名称，每行一个"));
+
+      // 测试结果框
+      body.appendChild(testResultBox);
+
+      // 可折叠高级配置区域
+      const advancedDetails = document.createElement("details");
+      advancedDetails.className = "provider-advanced-toggle";
+      const advSummary = document.createElement("summary");
+      advSummary.textContent = "⚙️ 高级配置 (协议/超时/参数定制，选填)";
+      advancedDetails.appendChild(advSummary);
+
+      const advBody = document.createElement("div");
+      advBody.style.display = "grid";
+      advBody.style.gap = "10px";
+      advBody.style.marginTop = "8px";
+
       const protocol = document.createElement("select");
       protocol.className = "config-input";
       for (const value of ["auto", "openai-chat", "openai-responses", "anthropic"]) {
         const option = document.createElement("option");
         option.value = value;
-        option.textContent = value;
+        option.textContent = value === "auto" ? "auto (自动识别)" : value;
         option.selected = provider.protocol === value;
         protocol.appendChild(option);
       }
       protocol.addEventListener("change", () => { provider.protocol = protocol.value; markConfigDirty(); updateAdvancedConfigEditor(); });
-      body.appendChild(configField("协议", protocol));
-      const secretKey = `providers.${index}.api_key`;
-      body.appendChild(secretEditor("API Key", secretKey));
+      advBody.appendChild(configField("通讯协议 (Protocol)", protocol, "默认 auto 即可"));
 
       const numeric = [
         ["超时秒数", "timeout_seconds", 1, 1], ["Temperature", "temperature", 0, 0.1], ["Anthropic 最大 Token", "anthropic_max_tokens", 1, 1]
@@ -1572,18 +1888,19 @@
             updateAdvancedConfigEditor();
           }
         });
-        body.appendChild(configField(label, input));
+        advBody.appendChild(configField(label, input));
       }
+
       const structured = [
-        ["可用模型", "models", "lines", "每行一个模型"],
-        ["模型上下文窗口", "model_context_window", "json", "JSON 对象：模型名到 Token 数"], ["模型价格", "model_costs", "json", "JSON 对象：模型名到 {currency, input, output, cache_read}，currency 可为 USD/CNY(默认 USD)，价格单位为 每 1M tokens；留空用 models.dev 目录价"],
-        ["模型输入模态", "model_modalities", "json", "JSON 对象：模型名到 text/image/audio/video/pdf 数组"],
-        ["额外请求体", "extra_body", "json", "JSON 对象，留空表示不设置"]
+        ["模型上下文窗口", "model_context_window", "json", "JSON 对象：模型名到 Token 数，如 {\"gemini-3.7-flash\": 936000}"],
+        ["模型价格", "model_costs", "json", "JSON 对象：模型名到价格信息，留空按 models.dev 目录价"],
+        ["模型输入模态", "model_modalities", "json", "JSON 对象：模型名到 text/image 数组"],
+        ["额外请求体 (Extra Body)", "extra_body", "json", "自定义扩展 JSON 参数，留空表示不设置"]
       ];
       for (const [label, key, type, description] of structured) {
         const input = document.createElement("textarea");
         input.className = "config-input";
-        input.rows = key === "models" ? 4 : 5;
+        input.rows = 3;
         input.value = type === "lines" ? (provider[key] || []).join("\n") : provider[key] == null ? "" : JSON.stringify(provider[key], null, 2);
         input.addEventListener("input", () => {
           clearConfigFieldError(input);
@@ -1591,34 +1908,28 @@
             provider[key] = type === "lines"
               ? input.value.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean)
               : input.value.trim() ? JSON.parse(input.value) : key === "extra_body" ? null : {};
-            if (key === "models" && provider.default_model && !provider.models.includes(provider.default_model)) {
-              provider.models.push(provider.default_model);
-            }
             markConfigDirty();
             updateAdvancedConfigEditor();
-            if (key === "models" || key === "model_modalities") renderModelPools();
+            if (key === "model_modalities") renderModelPools();
           } catch (_) {
             setConfigFieldError(input, "请输入有效 JSON");
             updateSettingsControls();
           }
         });
-        if (key === "models" || key === "model_modalities") {
-          input.addEventListener("change", () => {
-            if (state.invalidConfigFields.has(input)) return;
-            pruneModelReferences();
-            renderModelPools();
-            updateAdvancedConfigEditor();
-          });
-        }
-        body.appendChild(configField(label, input, description));
+        advBody.appendChild(configField(label, input, description));
       }
+
+      advancedDetails.appendChild(advBody);
+      body.appendChild(advancedDetails);
+
       card.append(summary, body);
       elements.providerEditor.appendChild(card);
     });
+
     if (!providers.length) {
       const empty = document.createElement("p");
       empty.className = "settings-empty";
-      empty.textContent = "至少需要添加一个供应商。";
+      empty.textContent = "尚未添加任何供应商，请点击上方「✨ 常用模板」或「新建空白」添加。";
       elements.providerEditor.appendChild(empty);
     }
   }
@@ -10397,6 +10708,15 @@
     elements.qqHistoryForm.addEventListener("submit", (event) => {
       event.preventDefault();
       loadQqHistory();
+    });
+    elements.toggleProviderTemplateButton?.addEventListener("click", () => {
+      if (elements.providerTemplateShelf) {
+        elements.providerTemplateShelf.hidden = !elements.providerTemplateShelf.hidden;
+        if (!elements.providerTemplateShelf.hidden) {
+          renderProviderTemplates();
+          elements.providerTemplateShelf.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+      }
     });
     elements.addProviderButton.addEventListener("click", () => {
       if (!state.configDraft) return;

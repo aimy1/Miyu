@@ -508,7 +508,27 @@
             <div class="config-form" id="generalConfigForm"></div>
             </section>
             <section class="settings-section settings-panel" data-settings-panel="providers" hidden>
-            <div class="settings-section-heading"><h2>供应商</h2><button class="secondary-button compact-button" id="addProviderButton" type="button">添加</button></div>
+            <div class="settings-section-heading">
+              <div>
+                <h2>供应商配置 (Providers)</h2>
+                <div id="providerActiveBanner" class="provider-active-banner">当前主用：<span id="activeProviderNameTag" class="active-provider-tag">--</span></div>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <button class="voice-btn voice-btn-secondary" id="toggleProviderTemplateButton" type="button" title="从预置模板快捷添加">
+                  ✨ 常用模板
+                </button>
+                <button class="voice-btn voice-btn-primary" id="addProviderButton" type="button">
+                  <span class="icon-slot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
+                  新建空白
+                </button>
+              </div>
+            </div>
+            <div id="providerTemplateShelf" class="provider-template-shelf" hidden>
+              <div class="template-shelf-title">选择预置模板一键添加供应商：</div>
+              <div class="template-grid" id="providerTemplateGrid">
+                <!-- 由 JS 动态渲染模板卡片 -->
+              </div>
+            </div>
             <div class="provider-editor" id="providerEditor"></div>
             </section>
             <section class="settings-section settings-panel" data-settings-panel="models" hidden>
