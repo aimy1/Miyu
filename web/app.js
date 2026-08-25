@@ -10832,11 +10832,7 @@
       event.preventDefault();
       addComposerFiles(files);
     });
-    elements.composerInput.addEventListener("input", () => {
-      stopVoice();
-    });
     elements.composerInput.addEventListener("paste", (event) => {
-      stopVoice();
       const files = collectTransferFiles(event.clipboardData);
       if (!files.length) {
         const hasUriList = Array.from(event.clipboardData?.items || []).some((item) => item.type === "text/uri-list");
@@ -10848,15 +10844,11 @@
     });
     elements.composerInput.addEventListener("compositionstart", () => {
       state.composing = true;
-      stopVoice();
     });
     elements.composerInput.addEventListener("compositionend", () => {
       state.composing = false;
     });
     elements.composerInput.addEventListener("keydown", (event) => {
-      if (!event.ctrlKey && !event.altKey && !event.metaKey && event.key && event.key.length === 1) {
-        stopVoice();
-      }
       // 菜单开着时它先吃掉上下键与 Tab/Enter：补全后再按一次回车才执行，
       // 与 REPL 一致，用户有机会反悔。
       if (window.MiyuCommands?.handleKey(event)) {

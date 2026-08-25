@@ -190,6 +190,16 @@ pub(crate) fn lookup_context_window(
         return Some(window);
     }
 
+    for canonical_provider in canonical_provider_candidates(data, model_id) {
+        if let Some(window) = data
+            .get(&canonical_provider)
+            .and_then(|provider| provider.get(model_id))
+            .and_then(|info| info.context_window)
+        {
+            return Some(window);
+        }
+    }
+
     let mut matches = data
         .values()
         .filter_map(|provider| provider.get(model_id))
