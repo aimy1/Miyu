@@ -435,6 +435,38 @@
                 </div>
               </div>
             </div>
+
+            <div class="voice-custom-card" style="margin-top: 14px;">
+              <header class="voice-custom-header">
+                <div>
+                  <h3>📁 本地语音文件管理</h3>
+                  <p>存放于 <code>voices/</code> 目录下的实体音频文件（支持 .mp3, .wav, .ogg, .flac, .m4a 等格式），支持上传与在线试听</p>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <input type="file" id="voiceFileInput" accept=".mp3,.wav,.ogg,.flac,.m4a,.aac,.opus,.wma,audio/*" style="display: none;">
+                  <button class="voice-btn voice-btn-primary" id="uploadVoiceFileButton" type="button">
+                    <span class="icon-slot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></span>
+                    上传音频
+                  </button>
+                  <button class="voice-btn voice-btn-secondary" id="refreshVoiceFilesButton" type="button" title="重新扫描 voices/ 目录">
+                    <span class="icon-slot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span>
+                    刷新
+                  </button>
+                </div>
+              </header>
+              <div id="voiceFileDropZone" class="voice-drop-zone">
+                <div class="voice-drop-zone-content">
+                  <span class="voice-drop-icon">🎵</span>
+                  <span>可点击右上角按钮上传，或直接将音频文件拖拽至此处，亦可直接放入项目 <code>voices/</code> 文件夹</span>
+                </div>
+              </div>
+              <div class="voice-list-section">
+                <div class="voice-list-title">已加载的本地语音文件 (<span id="voiceFileCount">0</span>)</div>
+                <div class="voice-list-grid" id="voiceFileList">
+                  <!-- JS 动态渲染本地文件条目 -->
+                </div>
+              </div>
+            </div>
             </section>
             <section class="settings-section settings-panel" data-settings-panel="interface">
             <h2>当前模型</h2>

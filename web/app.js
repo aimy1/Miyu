@@ -320,12 +320,19 @@
     customVoiceNameInput: document.getElementById("customVoiceNameInput"),
     customVoiceIdInput: document.getElementById("customVoiceIdInput"),
     addCustomVoiceButton: document.getElementById("addCustomVoiceButton"),
-    customVoiceList: document.getElementById("customVoiceList")
+    customVoiceList: document.getElementById("customVoiceList"),
+    voiceFileInput: document.getElementById("voiceFileInput"),
+    uploadVoiceFileButton: document.getElementById("uploadVoiceFileButton"),
+    refreshVoiceFilesButton: document.getElementById("refreshVoiceFilesButton"),
+    voiceFileDropZone: document.getElementById("voiceFileDropZone"),
+    voiceFileList: document.getElementById("voiceFileList"),
+    voiceFileCount: document.getElementById("voiceFileCount")
   };
 
   const state = {
     voiceEnabled: localStorage.getItem("miyu.voice.enabled") === "1",
     customVoices: [],
+    voiceFiles: [],
     voiceConfig: {
       voice: "zh-CN-XiaoxiaoNeural",
       pitch: "+0Hz",
@@ -10930,6 +10937,172 @@
     }
   }
 
+  async function loadVoiceFiles() {
+    try {
+      const res = await fetch("/api/voice/files");
+      if (!res.ok) return;
+      const data = await res.json();
+      state.voiceFiles = Array.isArray(data.files) ? data.files : [];
+      renderVoiceFileList();
+    } catch (e) {
+      console.warn("加载本地语音文件失败:", e);
+    }
+  }
+
+  function renderVoiceFileList() {
+    if (!elements.voiceFileList) return;
+    elements.voiceFileList.replaceChildren();
+
+    if (elements.voiceFileCount) {
+      elements.voiceFileCount.textContent = String(state.voiceFiles.length);
+    }
+
+    if (!state.voiceFiles.length) {
+      const empty = document.createElement("div");
+      empty.style.cssText = "color: var(--text-faint); font-size: var(--fs-meta); font-style: italic; padding: 10px 0; text-align: center;";
+      empty.textContent = "暂无本地语音文件，可点击右上角按钮上传或直接放入项目 voices/ 目录";
+      elements.voiceFileList.appendChild(empty);
+      return;
+    }
+
+    for (const file of state.voiceFiles) {
+      const row = document.createElement("div");
+      row.className = "voice-file-item";
+
+      const info = document.createElement("div");
+      info.className = "voice-file-info";
+
+      const badge = document.createElement("span");
+      badge.className = "voice-file-badge";
+      badge.textContent = file.ext.toUpperCase();
+
+      const meta = document.createElement("div");
+      meta.className = "voice-file-meta";
+
+      const name = document.createElement("div");
+      name.className = "voice-file-name";
+      name.textContent = file.name;
+      name.title = file.name;
+
+      const details = document.createElement("div");
+      details.className = "voice-file-details";
+      let detailText = file.size_formatted;
+      if (file.modified_at) {
+        try {
+          const d = new Date(file.modified_at);
+          detailText += ` • ${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        } catch (_) {}
+      }
+      details.textContent = detailText;
+
+      meta.append(name, details);
+      info.append(badge, meta);
+
+      const actions = document.createElement("div");
+      actions.className = "voice-file-actions";
+
+      const testBtn = document.createElement("button");
+      testBtn.type = "button";
+      testBtn.className = "voice-btn voice-btn-secondary";
+      testBtn.style.cssText = "min-height: 28px; padding: 0 10px; font-size: 12px;";
+      testBtn.textContent = "试听";
+      testBtn.addEventListener("click", () => {
+        playAudioFileUrl(file.url, file.name);
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "voice-btn voice-btn-danger";
+      delBtn.style.cssText = "min-height: 28px; padding: 0 10px; font-size: 12px;";
+      delBtn.textContent = "删除";
+      delBtn.addEventListener("click", async () => {
+        if (!confirm(`确定要删除本地语音文件 "${file.name}" 吗？`)) return;
+        try {
+          const res = await fetch(`/api/voice/files/${encodeURIComponent(file.name)}`, { method: "DELETE" });
+          if (res.ok) {
+            showToast(`已删除语音文件：${file.name}`);
+            await loadVoiceFiles();
+          } else {
+            showToast("删除失败", "error");
+          }
+        } catch (err) {
+          showToast("删除失败: " + err.message, "error");
+        }
+      });
+
+      actions.append(testBtn, delBtn);
+      row.append(info, actions);
+      elements.voiceFileList.appendChild(row);
+    }
+  }
+
+  async function playAudioFileUrl(url, displayName) {
+    stopVoice();
+    try {
+      showToast(`正在播放：${displayName}...`);
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const arrayBuffer = await response.arrayBuffer();
+      const ctx = getAudioContext();
+      if (ctx) {
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+        const sourceNode = ctx.createBufferSource();
+        sourceNode.buffer = audioBuffer;
+        sourceNode.connect(ctx.destination);
+        activeAudioSource = sourceNode;
+        sourceNode.onended = () => {
+          if (activeAudioSource === sourceNode) activeAudioSource = null;
+        };
+        sourceNode.start(0);
+      } else {
+        const audio = new Audio(url);
+        state.currentAudio = audio;
+        await audio.play();
+      }
+    } catch (err) {
+      console.warn("播放语音文件失败:", err);
+      showToast("播放失败: " + err.message, "error");
+    }
+  }
+
+  async function handleVoiceFileUpload(file) {
+    if (!file) return;
+    const validExts = [".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".opus", ".wma"];
+    const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+    if (!validExts.includes(ext)) {
+      showToast(`不支持的音频格式 (${ext})，请上传 ${validExts.join(", ")} 文件`, "error");
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      showToast("文件大小超出 50MB 限制", "error");
+      return;
+    }
+
+    try {
+      showToast(`正在上传 ${file.name}...`);
+      const res = await fetch("/api/voice/files", {
+        method: "POST",
+        headers: {
+          "x-miyu-filename": encodeURIComponent(file.name),
+          "Content-Type": "application/octet-stream"
+        },
+        body: file
+      });
+      if (!res.ok) {
+        let errDesc = `HTTP ${res.status}`;
+        try {
+          const errJson = await res.json();
+          if (errJson?.error?.message) errDesc = errJson.error.message;
+        } catch (_) {}
+        throw new Error(errDesc);
+      }
+      showToast(`上传成功：${file.name}`);
+      await loadVoiceFiles();
+    } catch (err) {
+      showToast("上传失败: " + err.message, "error");
+    }
+  }
+
   function initVoiceUI() {
     loadCustomVoices();
     const savedVoice = safeStorageGet("miyu.voice.voice");
@@ -10999,6 +11172,42 @@
       }
     });
 
+    elements.refreshVoiceFilesButton?.addEventListener("click", () => {
+      loadVoiceFiles();
+      showToast("已刷新本地语音文件列表");
+    });
+
+    elements.uploadVoiceFileButton?.addEventListener("click", () => {
+      elements.voiceFileInput?.click();
+    });
+
+    elements.voiceFileInput?.addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        handleVoiceFileUpload(file);
+      }
+      e.target.value = "";
+    });
+
+    if (elements.voiceFileDropZone) {
+      elements.voiceFileDropZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        elements.voiceFileDropZone.classList.add("is-dragover");
+      });
+      elements.voiceFileDropZone.addEventListener("dragleave", () => {
+        elements.voiceFileDropZone.classList.remove("is-dragover");
+      });
+      elements.voiceFileDropZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        elements.voiceFileDropZone.classList.remove("is-dragover");
+        const file = e.dataTransfer?.files?.[0];
+        if (file) {
+          handleVoiceFileUpload(file);
+        }
+      });
+    }
+
+    loadVoiceFiles();
     updateVoiceControls();
   }
 

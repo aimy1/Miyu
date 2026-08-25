@@ -286,6 +286,16 @@ pub(in crate::web) fn router(state: DaemonState) -> Router {
         .route("/api/config", get(get_config).put(update_config))
         .route("/api/voice/synthesize", post(synthesize_voice_http))
         .route(
+            "/api/voice/files",
+            get(list_voice_files_http)
+                .post(upload_voice_file_http)
+                .layer(DefaultBodyLimit::max(50 * 1024 * 1024)),
+        )
+        .route(
+            "/api/voice/files/{filename}",
+            get(get_voice_file_http).delete(delete_voice_file_http),
+        )
+        .route(
             "/api/qq-group-management/history",
             get(qq_group_history_http),
         )

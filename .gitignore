@@ -3,6 +3,10 @@
 *.gguf
 *.mp3
 *.wav
+*.ogg
+*.flac
+*.m4a
+*.opus
 *.bin
 /.idea/
 /.vscode/
