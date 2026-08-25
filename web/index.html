@@ -410,28 +410,40 @@
               </div>
             </div>
 
-            <div class="voice-custom-card">
+            <div class="voice-custom-card" style="margin-top: 14px;">
               <header class="voice-custom-header">
                 <div>
-                  <h3>添加自定义声音</h3>
-                  <p>输入显示名称与标识符（如微软官方音色 zh-CN-YunyangNeural、zh-TW-YunJheNeural、ja-JP-AoiNeural 等）</p>
+                  <h3>🎙️ 语音音色库管理 (<span id="voiceLibraryCount">0</span>)</h3>
+                  <p>管理用于文本朗读的合成音色，支持删除不需要的内置/自定义音色，或添加新音色</p>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <button class="voice-btn voice-btn-primary" id="toggleAddVoiceFormButton" type="button">
+                    <span class="icon-slot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
+                    添加音色
+                  </button>
+                  <button class="voice-btn voice-btn-secondary" id="resetPresetsButton" type="button" title="恢复所有系统默认预置音色">
+                    <span class="icon-slot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></span>
+                    恢复默认
+                  </button>
                 </div>
               </header>
-              <div class="voice-add-form">
-                <div class="voice-field">
-                  <label class="voice-field-label" for="customVoiceNameInput">显示别名</label>
-                  <input type="text" id="customVoiceNameInput" placeholder="例如：云扬 (新闻主播)" class="config-input">
+              <div id="voiceAddFormWrapper" class="voice-add-wrapper" hidden>
+                <div class="voice-add-form">
+                  <div class="voice-field">
+                    <label class="voice-field-label" for="customVoiceNameInput">显示别名</label>
+                    <input type="text" id="customVoiceNameInput" placeholder="例如：云扬 (新闻主播)" class="config-input">
+                  </div>
+                  <div class="voice-field">
+                    <label class="voice-field-label" for="customVoiceIdInput">声音标识 (Voice ID)</label>
+                    <input type="text" id="customVoiceIdInput" placeholder="例如：zh-CN-YunyangNeural" class="config-input voice-id-input">
+                  </div>
+                  <button class="voice-btn voice-btn-primary" id="addCustomVoiceButton" type="button">保存音色</button>
                 </div>
-                <div class="voice-field">
-                  <label class="voice-field-label" for="customVoiceIdInput">声音标识 (Voice ID)</label>
-                  <input type="text" id="customVoiceIdInput" placeholder="例如：zh-CN-YunyangNeural" class="config-input voice-id-input">
-                </div>
-                <button class="voice-btn voice-btn-primary" id="addCustomVoiceButton" type="button">添加声音</button>
               </div>
               <div class="voice-list-section">
-                <div class="voice-list-title">已保存的自定义声音</div>
-                <div class="voice-list-grid" id="customVoiceList">
-                  <!-- JS 动态渲染自定义条目 -->
+                <div class="voice-list-title">可用音色清单（点击删除可精简列表）</div>
+                <div class="voice-list-grid" id="voiceLibraryList">
+                  <!-- JS 动态渲染所有音色条目（包含预置与自定义） -->
                 </div>
               </div>
             </div>

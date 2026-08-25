@@ -320,7 +320,11 @@
     customVoiceNameInput: document.getElementById("customVoiceNameInput"),
     customVoiceIdInput: document.getElementById("customVoiceIdInput"),
     addCustomVoiceButton: document.getElementById("addCustomVoiceButton"),
-    customVoiceList: document.getElementById("customVoiceList"),
+    voiceAddFormWrapper: document.getElementById("voiceAddFormWrapper"),
+    toggleAddVoiceFormButton: document.getElementById("toggleAddVoiceFormButton"),
+    resetPresetsButton: document.getElementById("resetPresetsButton"),
+    voiceLibraryList: document.getElementById("voiceLibraryList"),
+    voiceLibraryCount: document.getElementById("voiceLibraryCount"),
     voiceFileInput: document.getElementById("voiceFileInput"),
     uploadVoiceFileButton: document.getElementById("uploadVoiceFileButton"),
     refreshVoiceFilesButton: document.getElementById("refreshVoiceFilesButton"),
@@ -331,7 +335,7 @@
 
   const state = {
     voiceEnabled: localStorage.getItem("miyu.voice.enabled") === "1",
-    customVoices: [],
+    voiceList: [],
     voiceFiles: [],
     voiceConfig: {
       voice: "zh-CN-XiaoxiaoNeural",
@@ -10728,49 +10732,79 @@
     );
   }
 
-  const PRESET_VOICES = [
-    { id: "zh-CN-XiaoxiaoNeural", name: "晓晓 (zh-CN, 温柔女声)" },
-    { id: "zh-CN-YunxiNeural", name: "云希 (zh-CN, 活泼男声)" },
-    { id: "zh-CN-YunjianNeural", name: "云健 (zh-CN, 沉稳男声)" },
-    { id: "zh-CN-XiaoyiNeural", name: "晓伊 (zh-CN, 亲切女声)" },
-    { id: "zh-CN-YunyangNeural", name: "云扬 (zh-CN, 专业新闻主播)" },
-    { id: "zh-CN-XiaomengNeural", name: "晓梦 (zh-CN, 甜美女声)" },
-    { id: "zh-CN-liaoning-XiaobeiNeural", name: "东北晓北 (zh-CN-liaoning, 东北话)" },
-    { id: "zh-CN-shaanxi-XiaoniNeural", name: "陕西晓妮 (zh-CN-shaanxi, 陕西方言)" },
-    { id: "zh-TW-HsiaoChenNeural", name: "晓臻 (zh-TW, 台湾女声)" },
-    { id: "zh-TW-YunJheNeural", name: "云哲 (zh-TW, 台湾男声)" },
-    { id: "zh-HK-HiuMaanNeural", name: "晓曼 (zh-HK, 粤语女声)" },
-    { id: "zh-HK-WanLungNeural", name: "云龙 (zh-HK, 粤语男声)" },
-    { id: "ja-JP-NanamiNeural", name: "七海 Nanami (ja-JP, 日语甜美女声)" },
-    { id: "ja-JP-KeitaNeural", name: "圭太 Keita (ja-JP, 日语男声)" },
-    { id: "ja-JP-AoiNeural", name: "葵 Aoi (ja-JP, 日语自然女声)" },
-    { id: "en-US-JennyNeural", name: "Jenny (en-US, 美语自然女声)" },
-    { id: "en-US-GuyNeural", name: "Guy (en-US, 美语男声)" },
-    { id: "en-US-AriaNeural", name: "Aria (en-US, 美语新闻女主播)" }
+  const DEFAULT_PRESET_VOICES = [
+    { id: "zh-CN-XiaoxiaoNeural", name: "晓晓 (zh-CN, 温柔女声)", isPreset: true },
+    { id: "zh-CN-YunxiNeural", name: "云希 (zh-CN, 活泼男声)", isPreset: true },
+    { id: "zh-CN-YunjianNeural", name: "云健 (zh-CN, 沉稳男声)", isPreset: true },
+    { id: "zh-CN-XiaoyiNeural", name: "晓伊 (zh-CN, 亲切女声)", isPreset: true },
+    { id: "zh-CN-YunyangNeural", name: "云扬 (zh-CN, 专业新闻主播)", isPreset: true },
+    { id: "zh-CN-XiaomengNeural", name: "晓梦 (zh-CN, 甜美女声)", isPreset: true },
+    { id: "zh-CN-liaoning-XiaobeiNeural", name: "东北晓北 (zh-CN-liaoning, 东北话)", isPreset: true },
+    { id: "zh-CN-shaanxi-XiaoniNeural", name: "陕西晓妮 (zh-CN-shaanxi, 陕西方言)", isPreset: true },
+    { id: "zh-TW-HsiaoChenNeural", name: "晓臻 (zh-TW, 台湾女声)", isPreset: true },
+    { id: "zh-TW-YunJheNeural", name: "云哲 (zh-TW, 台湾男声)", isPreset: true },
+    { id: "zh-HK-HiuMaanNeural", name: "晓曼 (zh-HK, 粤语女声)", isPreset: true },
+    { id: "zh-HK-WanLungNeural", name: "云龙 (zh-HK, 粤语男声)", isPreset: true },
+    { id: "ja-JP-NanamiNeural", name: "七海 Nanami (ja-JP, 日语甜美女声)", isPreset: true },
+    { id: "ja-JP-KeitaNeural", name: "圭太 Keita (ja-JP, 日语男声)", isPreset: true },
+    { id: "ja-JP-AoiNeural", name: "葵 Aoi (ja-JP, 日语自然女声)", isPreset: true },
+    { id: "en-US-JennyNeural", name: "Jenny (en-US, 美语自然女声)", isPreset: true },
+    { id: "en-US-GuyNeural", name: "Guy (en-US, 美语男声)", isPreset: true },
+    { id: "en-US-AriaNeural", name: "Aria (en-US, 美语新闻女主播)", isPreset: true }
   ];
 
-  function loadCustomVoices() {
+  function loadVoiceList() {
     try {
-      const raw = safeStorageGet("miyu.voice.custom_voices");
-      state.customVoices = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(state.customVoices)) state.customVoices = [];
+      const raw = safeStorageGet("miyu.voice.voice_list");
+      if (raw) {
+        state.voiceList = JSON.parse(raw);
+        if (!Array.isArray(state.voiceList) || state.voiceList.length === 0) {
+          state.voiceList = JSON.parse(JSON.stringify(DEFAULT_PRESET_VOICES));
+        }
+      } else {
+        const legacyCustom = safeStorageGet("miyu.voice.custom_voices");
+        const customArr = legacyCustom ? JSON.parse(legacyCustom) : [];
+        state.voiceList = JSON.parse(JSON.stringify(DEFAULT_PRESET_VOICES));
+        if (Array.isArray(customArr)) {
+          for (const cv of customArr) {
+            if (!state.voiceList.some((v) => v.id === cv.id)) {
+              state.voiceList.push({ id: cv.id, name: cv.name, isPreset: false });
+            }
+          }
+        }
+      }
     } catch (_) {
-      state.customVoices = [];
+      state.voiceList = JSON.parse(JSON.stringify(DEFAULT_PRESET_VOICES));
     }
   }
 
-  function saveCustomVoices() {
-    safeStorageSet("miyu.voice.custom_voices", JSON.stringify(state.customVoices));
+  function saveVoiceList() {
+    safeStorageSet("miyu.voice.voice_list", JSON.stringify(state.voiceList));
+  }
+
+  function resetPresetVoices() {
+    state.voiceList = JSON.parse(JSON.stringify(DEFAULT_PRESET_VOICES));
+    saveVoiceList();
+    if (!state.voiceList.some((v) => v.id === state.voiceConfig.voice)) {
+      state.voiceConfig.voice = state.voiceList[0].id;
+      safeStorageSet("miyu.voice.voice", state.voiceConfig.voice);
+    }
+    renderVoiceSelect();
+    renderVoiceLibraryList();
+    showToast("已恢复系统默认预置音色");
   }
 
   function renderVoiceSelect() {
     if (!elements.voiceSelect) return;
     elements.voiceSelect.replaceChildren();
 
-    if (state.customVoices.length > 0) {
+    const customVoices = state.voiceList.filter((v) => !v.isPreset);
+    const presetVoices = state.voiceList.filter((v) => v.isPreset);
+
+    if (customVoices.length > 0) {
       const customGroup = document.createElement("optgroup");
       customGroup.label = "自定义声音";
-      for (const voice of state.customVoices) {
+      for (const voice of customVoices) {
         const opt = document.createElement("option");
         opt.value = voice.id;
         opt.textContent = `${voice.name} (${voice.id})`;
@@ -10779,55 +10813,79 @@
       elements.voiceSelect.appendChild(customGroup);
     }
 
-    const presetGroup = document.createElement("optgroup");
-    presetGroup.label = "内置预置声音";
-    for (const voice of PRESET_VOICES) {
-      const opt = document.createElement("option");
-      opt.value = voice.id;
-      opt.textContent = voice.name;
-      presetGroup.appendChild(opt);
+    if (presetVoices.length > 0) {
+      const presetGroup = document.createElement("optgroup");
+      presetGroup.label = "预置声音";
+      for (const voice of presetVoices) {
+        const opt = document.createElement("option");
+        opt.value = voice.id;
+        opt.textContent = voice.name;
+        presetGroup.appendChild(opt);
+      }
+      elements.voiceSelect.appendChild(presetGroup);
     }
-    elements.voiceSelect.appendChild(presetGroup);
 
-    const allIds = new Set([...state.customVoices.map((v) => v.id), ...PRESET_VOICES.map((v) => v.id)]);
-    if (state.voiceConfig.voice && !allIds.has(state.voiceConfig.voice)) {
+    if (state.voiceList.length === 0) {
       const opt = document.createElement("option");
-      opt.value = state.voiceConfig.voice;
-      opt.textContent = `当前声音: ${state.voiceConfig.voice}`;
+      opt.value = "zh-CN-XiaoxiaoNeural";
+      opt.textContent = "无可用音色 (请添加或恢复预置)";
       elements.voiceSelect.appendChild(opt);
+    }
+
+    if (state.voiceConfig.voice && !state.voiceList.some((v) => v.id === state.voiceConfig.voice)) {
+      if (state.voiceList.length > 0) {
+        state.voiceConfig.voice = state.voiceList[0].id;
+        safeStorageSet("miyu.voice.voice", state.voiceConfig.voice);
+      }
     }
 
     elements.voiceSelect.value = state.voiceConfig.voice;
   }
 
-  function renderCustomVoiceList() {
-    if (!elements.customVoiceList) return;
-    elements.customVoiceList.replaceChildren();
+  function renderVoiceLibraryList() {
+    if (!elements.voiceLibraryList) return;
+    elements.voiceLibraryList.replaceChildren();
 
-    if (!state.customVoices.length) {
+    if (elements.voiceLibraryCount) {
+      elements.voiceLibraryCount.textContent = String(state.voiceList.length);
+    }
+
+    if (!state.voiceList.length) {
       const empty = document.createElement("div");
-      empty.style.cssText = "color: var(--text-faint); font-size: var(--fs-meta); font-style: italic; padding: 6px 0;";
-      empty.textContent = "暂无自定义声音，可在上方输入并添加";
-      elements.customVoiceList.appendChild(empty);
+      empty.style.cssText = "color: var(--text-faint); font-size: var(--fs-meta); font-style: italic; padding: 10px 0; text-align: center;";
+      empty.textContent = "当前音色库为空，可点击右上角【添加音色】或【恢复默认】";
+      elements.voiceLibraryList.appendChild(empty);
       return;
     }
 
-    for (const voice of state.customVoices) {
+    for (const voice of state.voiceList) {
       const row = document.createElement("div");
-      row.className = "custom-voice-item";
+      const isSelected = state.voiceConfig.voice === voice.id;
+      row.className = `voice-library-item ${isSelected ? "is-active" : ""}`;
 
       const info = document.createElement("div");
-      info.className = "custom-voice-info";
-      const name = document.createElement("strong");
-      name.className = "custom-voice-name";
+      info.className = "voice-library-info";
+
+      const tag = document.createElement("span");
+      tag.className = `voice-tag ${voice.isPreset ? "preset" : "custom"}`;
+      tag.textContent = voice.isPreset ? "内置" : "自定义";
+
+      const meta = document.createElement("div");
+      meta.className = "voice-library-meta";
+
+      const name = document.createElement("div");
+      name.className = "voice-library-name";
       name.textContent = voice.name;
-      const id = document.createElement("small");
-      id.className = "custom-voice-id";
+
+      const id = document.createElement("div");
+      id.className = "voice-library-id";
       id.textContent = voice.id;
-      info.append(name, id);
+
+      meta.append(name, id);
+      info.append(tag, meta);
 
       const actions = document.createElement("div");
-      actions.className = "custom-voice-actions";
+      actions.className = "voice-file-actions";
 
       const testBtn = document.createElement("button");
       testBtn.type = "button";
@@ -10835,7 +10893,7 @@
       testBtn.style.cssText = "min-height: 28px; padding: 0 10px; font-size: 12px;";
       testBtn.textContent = "试听";
       testBtn.addEventListener("click", () => {
-        playVoiceText(`你好，这是自定义声音 ${voice.name} 的试听效果！`, {
+        playVoiceText(`你好，这是 ${voice.name} 的试听发音效果！`, {
           voice: voice.id,
           rate: state.voiceConfig.rate,
           pitch: state.voiceConfig.pitch
@@ -10846,13 +10904,13 @@
       useBtn.type = "button";
       useBtn.className = "voice-btn voice-btn-secondary";
       useBtn.style.cssText = "min-height: 28px; padding: 0 10px; font-size: 12px;";
-      useBtn.textContent = state.voiceConfig.voice === voice.id ? "已选用" : "设为当前";
-      if (state.voiceConfig.voice === voice.id) useBtn.disabled = true;
+      useBtn.textContent = isSelected ? "已选用" : "设为当前";
+      if (isSelected) useBtn.disabled = true;
       useBtn.addEventListener("click", () => {
         state.voiceConfig.voice = voice.id;
         safeStorageSet("miyu.voice.voice", voice.id);
         renderVoiceSelect();
-        renderCustomVoiceList();
+        renderVoiceLibraryList();
         showToast(`已切换当前音色为：${voice.name}`);
       });
 
@@ -10861,21 +10919,22 @@
       delBtn.className = "voice-btn voice-btn-danger";
       delBtn.style.cssText = "min-height: 28px; padding: 0 10px; font-size: 12px;";
       delBtn.textContent = "删除";
+      delBtn.title = voice.isPreset ? "从音色库中移除此内置音色" : "删除此自定义音色";
       delBtn.addEventListener("click", () => {
-        state.customVoices = state.customVoices.filter((v) => v.id !== voice.id);
-        saveCustomVoices();
+        state.voiceList = state.voiceList.filter((v) => v.id !== voice.id);
+        saveVoiceList();
         if (state.voiceConfig.voice === voice.id) {
-          state.voiceConfig.voice = PRESET_VOICES[0].id;
+          state.voiceConfig.voice = state.voiceList[0]?.id || "zh-CN-XiaoxiaoNeural";
           safeStorageSet("miyu.voice.voice", state.voiceConfig.voice);
         }
         renderVoiceSelect();
-        renderCustomVoiceList();
-        showToast(`已删除自定义声音：${voice.name}`);
+        renderVoiceLibraryList();
+        showToast(`已删除音色：${voice.name}`);
       });
 
       actions.append(testBtn, useBtn, delBtn);
       row.append(info, actions);
-      elements.customVoiceList.appendChild(row);
+      elements.voiceLibraryList.appendChild(row);
     }
   }
 
@@ -10894,21 +10953,22 @@
       return;
     }
 
-    if (state.customVoices.some((v) => v.id === voiceId)) {
-      showToast("该声音标识已存在于自定义列表中", "error");
+    if (state.voiceList.some((v) => v.id === voiceId)) {
+      showToast("该声音标识已存在于音色库列表中", "error");
       return;
     }
 
-    state.customVoices.push({ id: voiceId, name });
-    saveCustomVoices();
+    state.voiceList.push({ id: voiceId, name, isPreset: false });
+    saveVoiceList();
     state.voiceConfig.voice = voiceId;
     safeStorageSet("miyu.voice.voice", voiceId);
 
     if (elements.customVoiceNameInput) elements.customVoiceNameInput.value = "";
     if (elements.customVoiceIdInput) elements.customVoiceIdInput.value = "";
+    if (elements.voiceAddFormWrapper) elements.voiceAddFormWrapper.hidden = true;
 
     renderVoiceSelect();
-    renderCustomVoiceList();
+    renderVoiceLibraryList();
     showToast(`已成功添加并选用声音：${name}`);
   }
 
@@ -11104,7 +11164,7 @@
   }
 
   function initVoiceUI() {
-    loadCustomVoices();
+    loadVoiceList();
     const savedVoice = safeStorageGet("miyu.voice.voice");
     if (savedVoice) state.voiceConfig.voice = savedVoice;
     const savedRate = safeStorageGet("miyu.voice.rate");
@@ -11113,7 +11173,7 @@
     if (savedPitch) state.voiceConfig.pitch = savedPitch;
 
     renderVoiceSelect();
-    renderCustomVoiceList();
+    renderVoiceLibraryList();
 
     elements.voiceToggleButton?.addEventListener("click", () => {
       state.voiceEnabled = !state.voiceEnabled;
@@ -11133,7 +11193,7 @@
     elements.voiceSelect?.addEventListener("change", (e) => {
       state.voiceConfig.voice = e.target.value;
       safeStorageSet("miyu.voice.voice", state.voiceConfig.voice);
-      renderCustomVoiceList();
+      renderVoiceLibraryList();
     });
 
     elements.voiceRateSlider?.addEventListener("input", (e) => {
@@ -11156,6 +11216,21 @@
         rate: state.voiceConfig.rate,
         pitch: state.voiceConfig.pitch
       });
+    });
+
+    elements.toggleAddVoiceFormButton?.addEventListener("click", () => {
+      if (elements.voiceAddFormWrapper) {
+        elements.voiceAddFormWrapper.hidden = !elements.voiceAddFormWrapper.hidden;
+        if (!elements.voiceAddFormWrapper.hidden) {
+          elements.customVoiceNameInput?.focus();
+        }
+      }
+    });
+
+    elements.resetPresetsButton?.addEventListener("click", () => {
+      if (confirm("确定要恢复默认预置音色吗？")) {
+        resetPresetVoices();
+      }
     });
 
     elements.addCustomVoiceButton?.addEventListener("click", addCustomVoice);
